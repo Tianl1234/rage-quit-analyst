@@ -8,8 +8,8 @@ import pygame
 # ---------------------------------------------------------
 # 1. Globale Variablen & Konfiguration
 # ---------------------------------------------------------
-ZEITFENSTER = 5.0  # Erhöht auf 5 Sekunden für eine flüssigere Messung
-RAGE_SCHWELLE = 350
+ZEITFENSTER = 5.0  # Wir analysieren die Anschläge der letzten 5 Sekunden
+RAGE_SCHWELLE = 350 # KPM Limit für den Rage-Modus
 anschlaege = []
 beruhigungs_modus = False
 
@@ -81,32 +81,27 @@ def analysiere_tippgeschwindigkeit():
     while anschlaege and anschlaege[0] < jetzt - ZEITFENSTER:
         anschlaege.pop(0)
 
-    # --- NEUE, EXAKTE BERECHNUNG ---
+    # Exakte Berechnung mit Stoßdämpfer (mindestens 2 Sekunden als Basis)
     if len(anschlaege) > 1:
-        # Wie viel Zeit ist exakt vergangen seit dem ältesten gemerkten Tastenanschlag?
         zeit_vergangen = jetzt - anschlaege[0]
-        if zeit_vergangen > 0:
-            # Rechnet die Anschläge auf 60 Sekunden (1 Minute) hoch
-            aktuelle_kpm = int((len(anschlaege) / zeit_vergangen) * 60)
-        else:
-            aktuelle_kpm = 0
+        rechen_zeit = max(zeit_vergangen, 2.0)
+        aktuelle_kpm = int((len(anschlaege) / rechen_zeit) * 60)
     else:
-        # Bei 0 oder 1 Anschlag lässt sich keine sinnvolle Geschwindigkeit messen
         aktuelle_kpm = 0
 
     lbl_kpm.config(text=f"{aktuelle_kpm} KPM")
 
     # Farben & Rage-Trigger
     if aktuelle_kpm < 150:
-        lbl_kpm.config(fg="#4CAF50")
+        lbl_kpm.config(fg="#4CAF50") # Grün (Entspannt)
     elif aktuelle_kpm < RAGE_SCHWELLE:
-        lbl_kpm.config(fg="#FF9800")
+        lbl_kpm.config(fg="#FF9800") # Orange (Warnung)
     else:
-        lbl_kpm.config(fg="#F44336")
+        lbl_kpm.config(fg="#F44336") # Rot (Rage!)
         if not beruhigungs_modus:
             loese_zen_modus_aus()
 
-    root.after(100, analysiere_tippgeschwindigkeit) # Update alle 100ms (noch flüssiger!)
+    root.after(100, analysiere_tippgeschwindigkeit) 
 
 def loese_zen_modus_aus():
     global beruhigungs_modus, anschlaege
@@ -137,6 +132,7 @@ def loese_zen_modus_aus():
         beruhigungs_modus = False
         zen_fenster.destroy()
 
+    # Nach 5000 Millisekunden (5 Sekunden) wird das Popup wieder geschlossen
     zen_fenster.after(5000, schliesse_zen)
 
 # ---------------------------------------------------------
@@ -168,13 +164,16 @@ def programm_beenden():
 if __name__ == "__main__":
     lade_playlist()
 
+    # Hintergrund-Thread für die Tastatur
     thread = threading.Thread(target=starte_keylogger, daemon=True)
     thread.start()
 
+    # GUI Setup
     root = tk.Tk()
     root.overrideredirect(True) 
     root.attributes('-topmost', True) 
     
+    # Transparenz einstellen (nur für Windows)
     TRANSPARENT_COLOR = "#000001"
     root.configure(bg=TRANSPARENT_COLOR)
     root.wm_attributes("-transparentcolor", TRANSPARENT_COLOR)
@@ -190,9 +189,11 @@ if __name__ == "__main__":
     btn_close = tk.Button(frame, text="✖", font=("Arial", 8), fg="gray", bg=TRANSPARENT_COLOR, bd=0, activebackground=TRANSPARENT_COLOR, activeforeground="white", cursor="hand2", command=programm_beenden)
     btn_close.pack(side="right", anchor="n")
 
+    # Drag & Drop Events an das Label binden
     lbl_kpm.bind("<ButtonPress-1>", start_move)
     lbl_kpm.bind("<ButtonRelease-1>", stop_move)
     lbl_kpm.bind("<B1-Motion>", do_move)
 
+    # Endlosschleife starten
     analysiere_tippgeschwindigkeit()
     root.mainloop()
