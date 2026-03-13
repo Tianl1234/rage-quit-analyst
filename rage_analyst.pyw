@@ -8,7 +8,7 @@ import pygame
 # ---------------------------------------------------------
 # 1. Globale Variablen & Konfiguration
 # ---------------------------------------------------------
-ZEITFENSTER = 3.0
+ZEITFENSTER = 5.0  # Erhöht auf 5 Sekunden für eine flüssigere Messung
 RAGE_SCHWELLE = 350
 anschlaege = []
 beruhigungs_modus = False
@@ -35,48 +35,38 @@ def starte_keylogger():
 # 3. Playlist & Audio-Logik
 # ---------------------------------------------------------
 def lade_playlist():
-    """Sucht beim Start alle MP3-Dateien im Ordner zusammen."""
     global playlist
     playlist = [datei for datei in os.listdir() if datei.lower().endswith(".mp3")]
     print(f"Gefundene Songs: {len(playlist)}")
 
 def spiele_musik():
-    """Entscheidet, wie die Musik abgespielt wird (Loop oder Playlist)."""
     global aktueller_song_index, playlist
     
     if not playlist:
-        return # Nichts tun, wenn keine Musik im Ordner ist
+        return
 
-    # FALL 1: Nur ein Song -> Spiele ihn in der Endlosschleife
     if len(playlist) == 1:
         try:
             pygame.mixer.music.load(playlist[0])
             pygame.mixer.music.play(loops=-1)
         except Exception:
             pass
-
-    # FALL 2: Mehrere Songs -> Spiele den aktuellen und bereite den nächsten vor
     else:
         try:
             song = playlist[aktueller_song_index]
             pygame.mixer.music.load(song)
             pygame.mixer.music.play()
             
-            # Index für das nächste Mal um eins erhöhen (fängt bei 0 an, wenn Liste zu Ende)
             aktueller_song_index = (aktueller_song_index + 1) % len(playlist)
-            
-            # Starte den Wächter, der prüft, wann der Song fertig ist
             root.after(1000, pruefe_ob_song_zuende_ist)
         except Exception:
             pass
 
 def pruefe_ob_song_zuende_ist():
-    """Wächter-Funktion: Prüft jede Sekunde, ob der Track fertig ist."""
     global beruhigungs_modus
-    
-    if beruhigungs_modus: # Nur prüfen, solange das Zen-Fenster noch offen ist
-        if not pygame.mixer.music.get_busy(): # get_busy() ist False, wenn die Musik stoppt
-            spiele_musik() # Nächsten Song abspielen
+    if beruhigungs_modus: 
+        if not pygame.mixer.music.get_busy(): 
+            spiele_musik() 
         else:
             root.after(1000, pruefe_ob_song_zuende_ist)
 
@@ -87,12 +77,26 @@ def analysiere_tippgeschwindigkeit():
     global anschlaege, beruhigungs_modus
     jetzt = time.time()
 
+    # Alte Anschläge entfernen, die außerhalb des Fensters (5 Sek) liegen
     while anschlaege and anschlaege[0] < jetzt - ZEITFENSTER:
         anschlaege.pop(0)
 
-    aktuelle_kpm = int(len(anschlaege) * (60 / ZEITFENSTER))
+    # --- NEUE, EXAKTE BERECHNUNG ---
+    if len(anschlaege) > 1:
+        # Wie viel Zeit ist exakt vergangen seit dem ältesten gemerkten Tastenanschlag?
+        zeit_vergangen = jetzt - anschlaege[0]
+        if zeit_vergangen > 0:
+            # Rechnet die Anschläge auf 60 Sekunden (1 Minute) hoch
+            aktuelle_kpm = int((len(anschlaege) / zeit_vergangen) * 60)
+        else:
+            aktuelle_kpm = 0
+    else:
+        # Bei 0 oder 1 Anschlag lässt sich keine sinnvolle Geschwindigkeit messen
+        aktuelle_kpm = 0
+
     lbl_kpm.config(text=f"{aktuelle_kpm} KPM")
 
+    # Farben & Rage-Trigger
     if aktuelle_kpm < 150:
         lbl_kpm.config(fg="#4CAF50")
     elif aktuelle_kpm < RAGE_SCHWELLE:
@@ -102,13 +106,12 @@ def analysiere_tippgeschwindigkeit():
         if not beruhigungs_modus:
             loese_zen_modus_aus()
 
-    root.after(200, analysiere_tippgeschwindigkeit)
+    root.after(100, analysiere_tippgeschwindigkeit) # Update alle 100ms (noch flüssiger!)
 
 def loese_zen_modus_aus():
     global beruhigungs_modus, anschlaege
     beruhigungs_modus = True
 
-    # Musik starten!
     spiele_musik()
 
     zen_fenster = tk.Toplevel(root)
@@ -129,13 +132,11 @@ def loese_zen_modus_aus():
 
     def schliesse_zen():
         global beruhigungs_modus
-        pygame.mixer.music.stop() # Musik stoppt, wenn das Fenster zugeht
+        pygame.mixer.music.stop() 
         anschlaege.clear()
         beruhigungs_modus = False
         zen_fenster.destroy()
 
-    # HINWEIS: Hier kannst du einstellen, wie lange das Popup (und die Musik) läuft.
-    # 5000 = 5 Sekunden. Mach z.B. 15000 daraus für 15 Sekunden.
     zen_fenster.after(5000, schliesse_zen)
 
 # ---------------------------------------------------------
@@ -165,7 +166,6 @@ def programm_beenden():
 # 6. Startpunkt (Main)
 # ---------------------------------------------------------
 if __name__ == "__main__":
-    # Playlist automatisch laden
     lade_playlist()
 
     thread = threading.Thread(target=starte_keylogger, daemon=True)
