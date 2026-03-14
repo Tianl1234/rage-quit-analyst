@@ -3,7 +3,7 @@ WPM Live-Overlay with Rage Detection & Zen Mode
 
 A lightweight, always-on-top overlay that displays your current typing speed (WPM) in real time.
 When you type too fast (rage threshold), it triggers a Zen Mode – a full-screen popup that forces
-you to take a break and plays calming music. Includes Spotify‑style music controls.
+you to take a break and plays calming music. Includes Spotify‑style music controls and a volume slider.
 
 Features
 --------
@@ -14,8 +14,9 @@ Features
 - Intelligent music handling during Zen Mode:
   * If music was already playing → it keeps playing uninterrupted, Zen Mode just shows the popup
   * If no music was playing → Zen Mode starts a song and stops it afterwards
-- Music controls – scan folder for MP3s, previous/next track
-- Drag‑anywhere overlay (click and drag the WPM label or buttons)
+- Music controls – scan folder for MP3s, previous/next track – **hidden by default, appear on double‑click**
+- Volume slider – adjust music volume (hidden together with music controls)
+- Drag‑anywhere overlay (click and drag the WPM label)
 - Auto‑install missing dependencies (pynput, pygame) on first run
 - No console window when saved as .pyw
 
@@ -56,11 +57,15 @@ You can drag it anywhere.
 Usage
 -----
 Main Window:
-- WPM label – shows current words per minute + emoji
-- ✖ button – quits the application
-- ⏮ button – previous song
-- 🔍 ▶ button – scan folder for MP3s and play the first one
-- ⏭ button – next song
+- **WPM label** – shows current words per minute + emoji.  
+  **Double‑click** the WPM label to show/hide the music controls (⏮, 🔍▶, ⏭ and volume slider).
+- **✖ button** – quits the application (always visible).
+
+Music controls (hidden by default, appear on double‑click):
+- **⏮ button** – previous song
+- **🔍 ▶ button** – scan folder for MP3s and play the first one
+- **⏭ button** – next song
+- **Volume slider** – adjust the music volume (only when controls are visible)
 
 Zen Mode:
 - When you type faster than the rage threshold (default 100 WPM), a popup appears for 5 seconds.
