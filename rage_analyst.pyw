@@ -5,8 +5,10 @@
 WPM Live-Overlay mit Rage-Detection & Zen-Modus
 ================================================
 - Speziell angepasst für Python 3.13
-- Automatische Erkennung und Fallback bei fehlendem pygame.mixer
-- pynput wird auf kompatible Version aktualisiert
+- Intelligentes Musikverhalten im Zen-Modus:
+  * Wenn vorher schon Musik lief → läuft sie durch
+  * Wenn vorher keine Musik lief → Zen startet/stoppt eigenen Song
+- Kein Konsolenfenster bei .pyw-Datei
 """
 
 import sys
@@ -21,14 +23,10 @@ PY_VERSION = sys.version_info[:2]
 IS_PY313 = PY_VERSION >= (3, 13)
 
 if IS_PY313:
-    # Kein Abbruch, aber Hinweis
     print("🔔 Python 3.13 erkannt – aktiviere Kompatibilitätsmodus")
-    
     # pynput muss mindestens Version 1.7.8 sein
     try:
         import pynput
-        from pynput import keyboard
-        # Prüfen, ob alt
         if pynput.__version__ < "1.7.8":
             print("⚠️  Veraltete pynput-Version erkannt – aktualisiere...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pynput"])
@@ -88,7 +86,7 @@ except Exception as e:
     print("   Das Overlay läuft trotzdem, aber ohne Musik-Funktionen.")
 
 # ------------------------------------------------------------
-# 5. Restliches Skript mit Fallback-Logik
+# 5. Restliches Skript mit intelligenter Zen-Musiklogik
 # ------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
@@ -108,6 +106,10 @@ beruhigungs_modus: bool  = False
 
 playlist: list[str]     = []
 aktueller_song_index: int = 0
+
+# Flags für intelligente Musiksteuerung im Zen-Modus
+musik_lief_vor_zen: bool = False          # Hat vor dem Zen-Modus schon Musik gespielt?
+musik_gestartet_durch_zen: bool = False   # Wurde der aktuelle Song vom Zen-Modus gestartet?
 
 # ------------------------------------------------------------
 # 6. Keylogger (pynput 1.7.8+ ist kompatibel)
@@ -133,6 +135,7 @@ def lade_playlist() -> None:
         log.warning("Keine MP3-Dateien im aktuellen Verzeichnis!")
 
 def spiele_song(index: int) -> None:
+    """Spielt den Song an Position `index`. Intern verwendet, auch von manuellen Buttons."""
     if not MIXER_VERFUEGBAR:
         log.warning("Mixer nicht verfügbar – kein Abspielen möglich")
         return
@@ -175,7 +178,6 @@ def scan_und_spiele() -> None:
         log.info("Scan abgeschlossen – erster Song gestartet.")
     elif not MIXER_VERFUEGBAR:
         log.warning("Mixer nicht verfügbar – kann keine Musik abspielen")
-        # Trotzdem Playlist anzeigen
         if playlist:
             messagebox.showinfo("Info", 
                 "Musik-Funktionen sind deaktiviert, da pygame.mixer nicht verfügbar ist.\n"
@@ -184,6 +186,9 @@ def scan_und_spiele() -> None:
         log.warning("Keine MP3-Dateien gefunden – nichts abgespielt.")
 
 def _song_watcher() -> None:
+    """Wird nur aufgerufen, wenn mehr als ein Song in der Playlist ist.
+       Prüft, ob der aktuelle Song zu Ende ist und spielt ggf. den nächsten,
+       aber NUR im Zen-Modus."""
     if not MIXER_VERFUEGBAR:
         return
     if not pygame.mixer.music.get_busy():
@@ -238,16 +243,30 @@ def analysiere_tippgeschwindigkeit() -> None:
     root.after(POLL_INTERVAL_MS, analysiere_tippgeschwindigkeit)
 
 # ------------------------------------------------------------
-# 9. Zen-Modus Popup (mit Mixer-Prüfung)
+# 9. Zen-Modus Popup (mit intelligenter Musiksteuerung)
 # ------------------------------------------------------------
 def loese_zen_modus_aus() -> None:
-    global beruhigungs_modus
+    global beruhigungs_modus, musik_lief_vor_zen, musik_gestartet_durch_zen
     beruhigungs_modus = True
     log.info("Zen-Modus aktiviert (WPM >= %d)", RAGE_SCHWELLE)
 
+    # Prüfen, ob gerade Musik läuft (auch wenn pausiert? get_busy = nur wenn aktiv spielt)
     if MIXER_VERFUEGBAR:
-        spiele_naechsten_song()
+        musik_lief_vor_zen = pygame.mixer.music.get_busy()
+        if not musik_lief_vor_zen:
+            # Vorher keine Musik → wir starten einen Song (wie bisher)
+            spiele_naechsten_song()
+            musik_gestartet_durch_zen = True
+            log.info("Zen-Modus startet eigenen Song")
+        else:
+            # Es läuft bereits Musik → wir lassen sie einfach weiterlaufen
+            musik_gestartet_durch_zen = False
+            log.info("Zen-Modus lässt vorhandene Musik weiterlaufen")
+    else:
+        musik_lief_vor_zen = False
+        musik_gestartet_durch_zen = False
 
+    # Zen-Popup erstellen
     zen = tk.Toplevel(root)
     zen.title("ZEN MODUS")
     zen.geometry("600x300")
@@ -269,10 +288,12 @@ def loese_zen_modus_aus() -> None:
     ).pack(expand=True)
 
     def schliesse_zen() -> None:
-        global beruhigungs_modus
-        if MIXER_VERFUEGBAR:
+        global beruhigungs_modus, musik_gestartet_durch_zen, musik_lief_vor_zen
+        # Musik nur stoppen, wenn sie vom Zen-Modus gestartet wurde UND vorher keine lief
+        if MIXER_VERFUEGBAR and musik_gestartet_durch_zen and not musik_lief_vor_zen:
             try:
                 pygame.mixer.music.stop()
+                log.info("Zen-Modus stoppt eigenen Song")
             except Exception as e:
                 log.error("Musik konnte nicht gestoppt werden: %s", e)
 
@@ -433,7 +454,6 @@ if __name__ == "__main__":
     # Hinweis bei deaktivierter Musik
     if not MIXER_VERFUEGBAR:
         log.info("Hinweis: Musik-Buttons sind deaktiviert (kein pygame.mixer)")
-        # Kurzes Popup beim Start
         root.after(1000, lambda: messagebox.showinfo(
             "Musik deaktiviert",
             "pygame.mixer ist nicht verfügbar.\n"
