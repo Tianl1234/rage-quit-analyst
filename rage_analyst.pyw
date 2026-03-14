@@ -5,16 +5,38 @@
 WPM Live-Overlay mit Rage-Detection & Zen-Modus
 ================================================
 - Speziell angepasst für Python 3.13
-- Intelligentes Musikverhalten im Zen-Modus:
-  * Wenn vorher schon Musik lief → läuft sie durch
-  * Wenn vorher keine Musik lief → Zen startet/stoppt eigenen Song
-- Kein Konsolenfenster bei .pyw-Datei
+- Intelligentes Musikverhalten im Zen-Modus
+- Fehler-Logging für .pyw-Ausführung (schreibt in fehler.log)
 """
 
+# ===== Fehler-Logging für .pyw-Modus =====
 import sys
+import traceback
+
+# Wenn kein Terminal vorhanden (z.B. .pyw), leite Fehler in Datei um
+if not sys.stdout:
+    try:
+        log_file = open("fehler.log", "w", encoding="utf-8")
+        sys.stderr = log_file
+        sys.stdout = log_file
+    except:
+        pass  # Falls nichts geht, Pech gehabt
+
+# ===== Restliche Imports =====
+import time
+import threading
+import logging
+import os
 import subprocess
 import tkinter as tk
 from tkinter import messagebox
+
+# Für Konsolenfenster verstecken (optional, auch bei .py nutzbar)
+try:
+    import ctypes
+    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+except:
+    pass
 
 # ------------------------------------------------------------
 # 1. Python-Version prüfen (für 3.13 spezielle Behandlung)
@@ -66,10 +88,6 @@ for pkg in REQUIRED_PACKAGES:
 # ------------------------------------------------------------
 # 3. Jetzt können die Pakete importiert werden
 # ------------------------------------------------------------
-import time
-import threading
-import logging
-import os
 from pynput import keyboard
 import pygame
 
@@ -250,11 +268,11 @@ def loese_zen_modus_aus() -> None:
     beruhigungs_modus = True
     log.info("Zen-Modus aktiviert (WPM >= %d)", RAGE_SCHWELLE)
 
-    # Prüfen, ob gerade Musik läuft (auch wenn pausiert? get_busy = nur wenn aktiv spielt)
+    # Prüfen, ob gerade Musik läuft
     if MIXER_VERFUEGBAR:
         musik_lief_vor_zen = pygame.mixer.music.get_busy()
         if not musik_lief_vor_zen:
-            # Vorher keine Musik → wir starten einen Song (wie bisher)
+            # Vorher keine Musik → wir starten einen Song
             spiele_naechsten_song()
             musik_gestartet_durch_zen = True
             log.info("Zen-Modus startet eigenen Song")
@@ -338,8 +356,6 @@ def programm_beenden() -> None:
 # 12. Hauptprogramm
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    # Mixer ist bereits getestet (siehe oben)
-    
     # Playlist laden (falls vorhanden)
     lade_playlist()
 
@@ -357,7 +373,7 @@ if __name__ == "__main__":
     root.wm_attributes("-transparentcolor", TRANSPARENT)
     root.geometry("+1500+100")
 
-    # Falls Mixer nicht verfügbar, Buttons deaktivieren (optional)
+    # Falls Mixer nicht verfügbar, Buttons deaktivieren
     btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
 
     # Haupt-Frame
