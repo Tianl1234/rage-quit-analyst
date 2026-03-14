@@ -1,28 +1,81 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
 WPM Live-Overlay mit Rage-Detection & Zen-Modus
 ================================================
-Verbesserungen:
-  - Thread-sicherer Zugriff auf `anschlaege` via threading.Lock
-  - Sauberes Beenden (kein os._exit)
-  - WPM-Berechnung präzise und geglättet (Stoßdämpfer)
-  - Fehlerresistente Audio-Logik (verhindert Einfrieren)
-  - Musiksteuerung (Playlist scannen, vor/zurück) mit Spotify-ähnlichen Buttons
+- Automatische Prüfung der Python-Version und Installation fehlender Pakete
+- Thread-sicherer Zugriff auf Tastenanschläge
+- WPM-Anzeige mit Emojis und Farben
+- Zen-Modus bei zu hoher Geschwindigkeit (mit Musik)
+- Musiksteuerung (Scannen, vor/zurück) im Spotify-Stil
 """
 
-import os
+import sys
+import subprocess
+import tkinter as tk
+from tkinter import messagebox
+
+# ------------------------------------------------------------
+# 1. Python-Version prüfen (pygame braucht stabile Wheels)
+# ------------------------------------------------------------
+if sys.version_info[:2] >= (3, 12):
+    root = tk.Tk()
+    root.withdraw()  # Hauptfenster verstecken
+    messagebox.showerror(
+        "Python-Version nicht unterstützt",
+        "Pygame funktioniert mit Python 3.12 und neuer nur sehr eingeschränkt.\n\n"
+        "Bitte installiere Python 3.11 oder älter von python.org.\n"
+        "Danach startest du dieses Skript erneut."
+    )
+    sys.exit(1)
+
+# ------------------------------------------------------------
+# 2. Fehlende Pakete automatisch installieren
+# ------------------------------------------------------------
+REQUIRED_PACKAGES = ["pynput", "pygame"]
+
+for pkg in REQUIRED_PACKAGES:
+    try:
+        __import__(pkg)
+    except ImportError:
+        print(f"🔧 {pkg} nicht gefunden – versuche Installation...")
+        try:
+            subprocess.check_call(
+                [sys.executable, "-m", "pip", "install", pkg],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            print(f"✅ {pkg} erfolgreich installiert.")
+        except Exception as e:
+            print(f"❌ Installation von {pkg} fehlgeschlagen: {e}")
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror(
+                "Installationsfehler",
+                f"Das Paket '{pkg}' konnte nicht installiert werden.\n\n"
+                "Bitte führe folgenden Befehl manuell aus:\n"
+                f"  {sys.executable} -m pip install {pkg}\n\n"
+                "Stelle sicher, dass du eine stabile Internetverbindung hast."
+            )
+            sys.exit(1)
+
+# ------------------------------------------------------------
+# 3. Jetzt können die Pakete importiert werden
+# ------------------------------------------------------------
 import time
 import threading
 import logging
-import tkinter as tk
 from pynput import keyboard
 import pygame
 
+# ------------------------------------------------------------
+# 4. Restliches Skript (unverändert ab hier)
+# ------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# 1. Konfiguration
-# ---------------------------------------------------------
+# Konfiguration
 ZEITFENSTER_SEK: float = 5.0       # Rollendes Fenster für WPM-Messung
 RAGE_SCHWELLE: int     = 100       # WPM ab der der Zen-Modus ausgelöst wird
 ZEN_DAUER_MS: int      = 5_000     # Wie lange das Zen-Popup sichtbar bleibt (ms)
@@ -30,9 +83,7 @@ ZEICHEN_PRO_WORT: int  = 5         # Standard: 1 Wort = 5 Tastenanschläge
 POLL_INTERVAL_MS: int  = 150       # Wie oft die WPM-Anzeige aktualisiert wird (ms)
 SONG_CHECK_MS: int     = 1_000     # Wie oft geprüft wird ob Song zu Ende ist (ms)
 
-# ---------------------------------------------------------
-# 2. Globaler Zustand (thread-sicher)
-# ---------------------------------------------------------
+# Globaler Zustand (thread-sicher)
 _lock             = threading.Lock()
 anschlaege: list[float] = []
 beruhigungs_modus: bool  = False
@@ -40,11 +91,10 @@ beruhigungs_modus: bool  = False
 playlist: list[str]     = []
 aktueller_song_index: int = 0
 
-# ---------------------------------------------------------
-# 3. Keylogger (Hintergrund-Thread)
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 5. Keylogger
+# ------------------------------------------------------------
 def on_press(key) -> None:
-    """Wird in einem eigenen Thread aufgerufen → Lock nötig."""
     with _lock:
         anschlaege.append(time.time())
 
@@ -52,9 +102,9 @@ def starte_keylogger() -> None:
     with keyboard.Listener(on_press=on_press) as listener:
         listener.join()
 
-# ---------------------------------------------------------
-# 4. Playlist & Audio
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 6. Playlist & Audio
+# ------------------------------------------------------------
 def lade_playlist() -> None:
     global playlist
     playlist = sorted(
@@ -65,19 +115,17 @@ def lade_playlist() -> None:
         log.warning("Keine MP3-Dateien im aktuellen Verzeichnis!")
 
 def spiele_song(index: int) -> None:
-    """Spielt den Song an Position `index` der Playlist."""
     if not playlist:
         log.warning("Keine Playlist geladen – nichts abgespielt.")
         return
 
-    idx = index % len(playlist)  # sicherheitshalber Modulo
+    idx = index % len(playlist)
     song = playlist[idx]
     try:
         pygame.mixer.music.load(song)
         pygame.mixer.music.play()
         log.info("Spiele: %s", song)
 
-        # Watcher nur starten, wenn mehr als ein Song vorhanden
         if len(playlist) > 1:
             root.after(SONG_CHECK_MS, _song_watcher)
     except Exception as e:
@@ -99,7 +147,7 @@ def vorheriger_song() -> None:
 
 def scan_und_spiele() -> None:
     global playlist, aktueller_song_index
-    lade_playlist()                      # Verzeichnis neu einlesen
+    lade_playlist()
     if playlist:
         aktueller_song_index = 0
         spiele_song(0)
@@ -108,16 +156,15 @@ def scan_und_spiele() -> None:
         log.warning("Keine MP3-Dateien gefunden – nichts abgespielt.")
 
 def _song_watcher() -> None:
-    """Prüft ob der aktuelle Song zu Ende ist und spielt ggf. den nächsten."""
     if not pygame.mixer.music.get_busy():
-        if beruhigungs_modus:          # Nur im Zen-Modus weiterspielen
+        if beruhigungs_modus:
             spiele_naechsten_song()
     else:
         root.after(SONG_CHECK_MS, _song_watcher)
 
-# ---------------------------------------------------------
-# 5. WPM-Analyse & Anzeige
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 7. WPM-Analyse
+# ------------------------------------------------------------
 WPM_STUFEN: list[tuple[int, str, str]] = [
     (20,  "🐢", "#4CAF50"),
     (40,  "🐇", "#8BC34A"),
@@ -134,12 +181,10 @@ def get_wpm_emoji_und_farbe(wpm: int) -> tuple[str, str]:
     return "🤬", "#F44336"
 
 def berechne_wpm() -> int:
-    """Thread-sicher: liest Anschläge, bereinigt altes Fenster, berechnet WPM."""
     jetzt = time.time()
     grenze = jetzt - ZEITFENSTER_SEK
 
     with _lock:
-        # Altes aus dem Fenster herausrollen
         while anschlaege and anschlaege[0] < grenze:
             anschlaege.pop(0)
 
@@ -147,8 +192,7 @@ def berechne_wpm() -> int:
             return 0
 
         vergangen = jetzt - anschlaege[0]
-        # FIX: Stoßdämpfer auf 2.0 setzen, damit die Zahl bei schnellen ersten Klicks nicht explodiert
-        vergangen = max(vergangen, 2.0)   
+        vergangen = max(vergangen, 2.0)
         return round((len(anschlaege) / ZEICHEN_PRO_WORT) / (vergangen / 60))
 
 def analysiere_tippgeschwindigkeit() -> None:
@@ -163,9 +207,9 @@ def analysiere_tippgeschwindigkeit() -> None:
 
     root.after(POLL_INTERVAL_MS, analysiere_tippgeschwindigkeit)
 
-# ---------------------------------------------------------
-# 6. Zen-Modus Popup
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 8. Zen-Modus Popup
+# ------------------------------------------------------------
 def loese_zen_modus_aus() -> None:
     global beruhigungs_modus
     beruhigungs_modus = True
@@ -191,25 +235,23 @@ def loese_zen_modus_aus() -> None:
 
     def schliesse_zen() -> None:
         global beruhigungs_modus
-        
-        # Sicherstellen, dass das Stoppen der Musik keinen Fehler wirft, der das Fenster blockiert
         try:
             pygame.mixer.music.stop()
         except Exception as e:
             log.error("Musik konnte nicht gestoppt werden: %s", e)
-            
+
         with _lock:
             anschlaege.clear()
-            
+
         beruhigungs_modus = False
         log.info("Zen-Modus beendet.")
         zen.destroy()
 
     zen.after(ZEN_DAUER_MS, schliesse_zen)
 
-# ---------------------------------------------------------
-# 7. Fenster verschieben (Drag)
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 9. Fenster verschieben (Drag)
+# ------------------------------------------------------------
 _drag_x: int = 0
 _drag_y: int = 0
 
@@ -222,9 +264,9 @@ def do_move(event: tk.Event) -> None:
     y = root.winfo_y() + (event.y - _drag_y)
     root.geometry(f"+{x}+{y}")
 
-# ---------------------------------------------------------
-# 8. Sauberes Beenden
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 10. Sauberes Beenden
+# ------------------------------------------------------------
 def programm_beenden() -> None:
     log.info("Programm wird beendet.")
     try:
@@ -232,20 +274,23 @@ def programm_beenden() -> None:
         pygame.mixer.quit()
     except:
         pass
-    root.destroy()   # mainloop endet → Prozess terminiert sauber
+    root.destroy()
 
-# ---------------------------------------------------------
-# 9. Main
-# ---------------------------------------------------------
+# ------------------------------------------------------------
+# 11. Hauptprogramm
+# ------------------------------------------------------------
 if __name__ == "__main__":
-    # FIX: Pygame Mixer explizit initialisieren, sonst stürzt das Programm beim Audio-Stoppen ab!
-    pygame.mixer.init() 
-    
+    # Pygame Mixer initialisieren
+    pygame.mixer.init()
+
+    # Playlist laden (falls vorhanden)
     lade_playlist()
 
+    # Keylogger-Thread starten
     keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
     keylogger_thread.start()
 
+    # Hauptfenster erstellen
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)
@@ -255,7 +300,7 @@ if __name__ == "__main__":
     root.wm_attributes("-transparentcolor", TRANSPARENT)
     root.geometry("+1500+100")
 
-    # Haupt-Frame (transparent)
+    # Haupt-Frame
     frame = tk.Frame(root, bg=TRANSPARENT)
     frame.pack()
 
@@ -292,7 +337,7 @@ if __name__ == "__main__":
 
     btn_prev = tk.Button(
         zeile2,
-        text="⏮",                     # Vorher-Symbol
+        text="⏮",
         font=("Segoe UI", 14),
         fg="white",
         bg="#2c3e50",
@@ -307,7 +352,7 @@ if __name__ == "__main__":
 
     btn_play_scan = tk.Button(
         zeile2,
-        text="🔍 ▶",                  # Symbol für Scannen & Play
+        text="🔍 ▶",
         font=("Segoe UI", 14),
         fg="white",
         bg="#2c3e50",
@@ -322,7 +367,7 @@ if __name__ == "__main__":
 
     btn_next = tk.Button(
         zeile2,
-        text="⏭",                     # Nächstes Symbol
+        text="⏭",
         font=("Segoe UI", 14),
         fg="white",
         bg="#2c3e50",
@@ -335,15 +380,13 @@ if __name__ == "__main__":
     )
     btn_next.pack(side="left", padx=5)
 
-    # Drag-Funktionalität auch auf die neuen Buttons ausweiten
-    for widget in (btn_prev, btn_play_scan, btn_next):
+    # Drag-Funktionalität für alle Elemente
+    for widget in (btn_prev, btn_play_scan, btn_next, lbl_wpm, frame):
         widget.bind("<ButtonPress-1>", start_move)
         widget.bind("<B1-Motion>", do_move)
 
-    # Drag für WPM-Label und Haupt-Frame (wie bisher)
-    for widget in (lbl_wpm, frame):
-        widget.bind("<ButtonPress-1>", start_move)
-        widget.bind("<B1-Motion>", do_move)
-
+    # WPM-Überwachung starten
     analysiere_tippgeschwindigkeit()
+
+    # Hauptschleife
     root.mainloop()
