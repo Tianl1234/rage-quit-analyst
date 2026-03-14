@@ -72,40 +72,43 @@ def pruefe_ob_song_zuende_ist():
 # ---------------------------------------------------------
 # 4. GUI & Analyse-Logik (Tkinter)
 # ---------------------------------------------------------
+def get_wpm_emoji_und_farbe(wpm):
+    """Übernimmt die geniale Ranking-Idee aus dem Typing-Test!"""
+    if wpm < 20:  return "🐢", "#4CAF50" # Grün (Anfänger/Schläfrig)
+    if wpm < 40:  return "🐇", "#8BC34A" # Hellgrün (Lernender)
+    if wpm < 60:  return "🚀", "#FFEB3B" # Gelb (Durchschnitt)
+    if wpm < 80:  return "🔥", "#FF9800" # Orange (Gut/Schnell)
+    if wpm < 100: return "⚡", "#FF5722" # Dunkelorange (Sehr gut)
+    return "🤬", "#F44336"              # Rot (Rage Modus / Profi-Hämmern)
+
 def analysiere_tippgeschwindigkeit():
     global anschlaege, beruhigungs_modus
     jetzt = time.time()
 
-    # Alte Anschläge entfernen, die außerhalb unserer 10 Sekunden liegen
+    # Alte Anschläge entfernen (10 Sekunden Fenster)
     while anschlaege and anschlaege[0] < jetzt - ZEITFENSTER:
         anschlaege.pop(0)
 
-    # --- EXAKTE WPM MATHEMATIK AUS DEINEM SCRIPT ---
+    # Exakte WPM Mathematik
     if anschlaege:
-        # Zeit seit dem ältesten Anschlag im Fenster
         time_elapsed = jetzt - anschlaege[0]
-        
-        # Der Trick aus deinem Script: Niemals durch weniger als 1 Sekunde teilen!
         time_elapsed = max(time_elapsed, 1.0)
-        
-        # (Anzahl Zeichen / Minuten) / 5 Zeichen pro Wort
         aktuelle_wpm = round((len(anschlaege) / (time_elapsed / 60)) / 5)
     else:
         aktuelle_wpm = 0
 
-    lbl_wpm.config(text=f"{aktuelle_wpm} WPM")
+    # Hol dir das passende Emoji und die Farbe für die aktuelle Geschwindigkeit!
+    emoji, farbe = get_wpm_emoji_und_farbe(aktuelle_wpm)
 
-    # Farben & Rage-Trigger (Angepasst auf WPM)
-    if aktuelle_wpm < 40:
-        lbl_wpm.config(fg="#4CAF50") # Grün (Entspannt, < 40 WPM)
-    elif aktuelle_wpm < RAGE_SCHWELLE:
-        lbl_wpm.config(fg="#FF9800") # Orange (Schnell, 40 bis 79 WPM)
-    else:
-        lbl_wpm.config(fg="#F44336") # Rot (Rage!, 80+ WPM)
+    # Text UND Emoji im Widget anzeigen
+    lbl_wpm.config(text=f"{aktuelle_wpm} WPM {emoji}", fg=farbe)
+
+    # Rage-Trigger (ab der RAGE_SCHWELLE)
+    if aktuelle_wpm >= RAGE_SCHWELLE:
         if not beruhigungs_modus:
             loese_zen_modus_aus()
 
-    root.after(100, analysiere_tippgeschwindigkeit) 
+    root.after(100, analysiere_tippgeschwindigkeit)
 
 def loese_zen_modus_aus():
     global beruhigungs_modus, anschlaege
