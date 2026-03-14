@@ -8,8 +8,8 @@ import pygame
 # ---------------------------------------------------------
 # 1. Globale Variablen & Konfiguration
 # ---------------------------------------------------------
-ZEITFENSTER = 10.0  # Erhöht auf 10 Sekunden für einen sehr genauen Durchschnitt
-RAGE_SCHWELLE = 80  # Ab 80 WPM (Wörter pro Minute) wird der Rage-Modus ausgelöst
+ZEITFENSTER = 5.0  # Erhöht auf 10 Sekunden für einen sehr genauen Durchschnitt
+RAGE_SCHWELLE = 100  # Ab 80 WPM (Wörter pro Minute) wird der Rage-Modus ausgelöst
 anschlaege = []
 beruhigungs_modus = False
 
