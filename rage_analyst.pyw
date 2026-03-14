@@ -4,11 +4,9 @@
 """
 WPM Live-Overlay mit Rage-Detection & Zen-Modus
 ================================================
-- Automatische Prüfung der Python-Version und Installation fehlender Pakete
-- Thread-sicherer Zugriff auf Tastenanschläge
-- WPM-Anzeige mit Emojis und Farben
-- Zen-Modus bei zu hoher Geschwindigkeit (mit Musik)
-- Musiksteuerung (Scannen, vor/zurück) im Spotify-Stil
+- Speziell angepasst für Python 3.13
+- Automatische Erkennung und Fallback bei fehlendem pygame.mixer
+- pynput wird auf kompatible Version aktualisiert
 """
 
 import sys
@@ -17,21 +15,28 @@ import tkinter as tk
 from tkinter import messagebox
 
 # ------------------------------------------------------------
-# 1. Python-Version prüfen (pygame braucht stabile Wheels)
+# 1. Python-Version prüfen (für 3.13 spezielle Behandlung)
 # ------------------------------------------------------------
-if sys.version_info[:2] >= (3, 12):
-    root = tk.Tk()
-    root.withdraw()  # Hauptfenster verstecken
-    messagebox.showerror(
-        "Python-Version nicht unterstützt",
-        "Pygame funktioniert mit Python 3.12 und neuer nur sehr eingeschränkt.\n\n"
-        "Bitte installiere Python 3.11 oder älter von python.org.\n"
-        "Danach startest du dieses Skript erneut."
-    )
-    sys.exit(1)
+PY_VERSION = sys.version_info[:2]
+IS_PY313 = PY_VERSION >= (3, 13)
+
+if IS_PY313:
+    # Kein Abbruch, aber Hinweis
+    print("🔔 Python 3.13 erkannt – aktiviere Kompatibilitätsmodus")
+    
+    # pynput muss mindestens Version 1.7.8 sein
+    try:
+        import pynput
+        from pynput import keyboard
+        # Prüfen, ob alt
+        if pynput.__version__ < "1.7.8":
+            print("⚠️  Veraltete pynput-Version erkannt – aktualisiere...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "pynput"])
+    except (ImportError, AttributeError):
+        pass
 
 # ------------------------------------------------------------
-# 2. Fehlende Pakete automatisch installieren
+# 2. Fehlende Pakete installieren/aktualisieren
 # ------------------------------------------------------------
 REQUIRED_PACKAGES = ["pynput", "pygame"]
 
@@ -66,24 +71,37 @@ for pkg in REQUIRED_PACKAGES:
 import time
 import threading
 import logging
+import os
 from pynput import keyboard
 import pygame
 
 # ------------------------------------------------------------
-# 4. Restliches Skript (unverändert ab hier)
+# 4. Mixer-Verfügbarkeit prüfen
+# ------------------------------------------------------------
+MIXER_VERFUEGBAR = False
+try:
+    pygame.mixer.init()
+    MIXER_VERFUEGBAR = True
+    print("✅ pygame.mixer verfügbar – Musik wird unterstützt")
+except Exception as e:
+    print(f"⚠️  pygame.mixer nicht verfügbar: {e}")
+    print("   Das Overlay läuft trotzdem, aber ohne Musik-Funktionen.")
+
+# ------------------------------------------------------------
+# 5. Restliches Skript mit Fallback-Logik
 # ------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
 # Konfiguration
-ZEITFENSTER_SEK: float = 5.0       # Rollendes Fenster für WPM-Messung
-RAGE_SCHWELLE: int     = 100       # WPM ab der der Zen-Modus ausgelöst wird
-ZEN_DAUER_MS: int      = 5_000     # Wie lange das Zen-Popup sichtbar bleibt (ms)
-ZEICHEN_PRO_WORT: int  = 5         # Standard: 1 Wort = 5 Tastenanschläge
-POLL_INTERVAL_MS: int  = 150       # Wie oft die WPM-Anzeige aktualisiert wird (ms)
-SONG_CHECK_MS: int     = 1_000     # Wie oft geprüft wird ob Song zu Ende ist (ms)
+ZEITFENSTER_SEK: float = 5.0
+RAGE_SCHWELLE: int     = 100
+ZEN_DAUER_MS: int      = 5_000
+ZEICHEN_PRO_WORT: int  = 5
+POLL_INTERVAL_MS: int  = 150
+SONG_CHECK_MS: int     = 1_000
 
-# Globaler Zustand (thread-sicher)
+# Globaler Zustand
 _lock             = threading.Lock()
 anschlaege: list[float] = []
 beruhigungs_modus: bool  = False
@@ -92,7 +110,7 @@ playlist: list[str]     = []
 aktueller_song_index: int = 0
 
 # ------------------------------------------------------------
-# 5. Keylogger
+# 6. Keylogger (pynput 1.7.8+ ist kompatibel)
 # ------------------------------------------------------------
 def on_press(key) -> None:
     with _lock:
@@ -103,7 +121,7 @@ def starte_keylogger() -> None:
         listener.join()
 
 # ------------------------------------------------------------
-# 6. Playlist & Audio
+# 7. Playlist & Audio (mit Mixer-Prüfung)
 # ------------------------------------------------------------
 def lade_playlist() -> None:
     global playlist
@@ -115,6 +133,9 @@ def lade_playlist() -> None:
         log.warning("Keine MP3-Dateien im aktuellen Verzeichnis!")
 
 def spiele_song(index: int) -> None:
+    if not MIXER_VERFUEGBAR:
+        log.warning("Mixer nicht verfügbar – kein Abspielen möglich")
+        return
     if not playlist:
         log.warning("Keine Playlist geladen – nichts abgespielt.")
         return
@@ -133,14 +154,14 @@ def spiele_song(index: int) -> None:
 
 def spiele_naechsten_song() -> None:
     global aktueller_song_index
-    if not playlist:
+    if not playlist or not MIXER_VERFUEGBAR:
         return
     aktueller_song_index = (aktueller_song_index + 1) % len(playlist)
     spiele_song(aktueller_song_index)
 
 def vorheriger_song() -> None:
     global aktueller_song_index
-    if not playlist:
+    if not playlist or not MIXER_VERFUEGBAR:
         return
     aktueller_song_index = (aktueller_song_index - 1) % len(playlist)
     spiele_song(aktueller_song_index)
@@ -148,14 +169,23 @@ def vorheriger_song() -> None:
 def scan_und_spiele() -> None:
     global playlist, aktueller_song_index
     lade_playlist()
-    if playlist:
+    if playlist and MIXER_VERFUEGBAR:
         aktueller_song_index = 0
         spiele_song(0)
         log.info("Scan abgeschlossen – erster Song gestartet.")
+    elif not MIXER_VERFUEGBAR:
+        log.warning("Mixer nicht verfügbar – kann keine Musik abspielen")
+        # Trotzdem Playlist anzeigen
+        if playlist:
+            messagebox.showinfo("Info", 
+                "Musik-Funktionen sind deaktiviert, da pygame.mixer nicht verfügbar ist.\n"
+                "Das WPM-Overlay funktioniert trotzdem.")
     else:
         log.warning("Keine MP3-Dateien gefunden – nichts abgespielt.")
 
 def _song_watcher() -> None:
+    if not MIXER_VERFUEGBAR:
+        return
     if not pygame.mixer.music.get_busy():
         if beruhigungs_modus:
             spiele_naechsten_song()
@@ -163,7 +193,7 @@ def _song_watcher() -> None:
         root.after(SONG_CHECK_MS, _song_watcher)
 
 # ------------------------------------------------------------
-# 7. WPM-Analyse
+# 8. WPM-Analyse (unverändert)
 # ------------------------------------------------------------
 WPM_STUFEN: list[tuple[int, str, str]] = [
     (20,  "🐢", "#4CAF50"),
@@ -208,14 +238,15 @@ def analysiere_tippgeschwindigkeit() -> None:
     root.after(POLL_INTERVAL_MS, analysiere_tippgeschwindigkeit)
 
 # ------------------------------------------------------------
-# 8. Zen-Modus Popup
+# 9. Zen-Modus Popup (mit Mixer-Prüfung)
 # ------------------------------------------------------------
 def loese_zen_modus_aus() -> None:
     global beruhigungs_modus
     beruhigungs_modus = True
     log.info("Zen-Modus aktiviert (WPM >= %d)", RAGE_SCHWELLE)
 
-    spiele_naechsten_song()
+    if MIXER_VERFUEGBAR:
+        spiele_naechsten_song()
 
     zen = tk.Toplevel(root)
     zen.title("ZEN MODUS")
@@ -224,9 +255,13 @@ def loese_zen_modus_aus() -> None:
     zen.configure(bg="#2c3e50")
     zen.overrideredirect(True)
 
+    text = "⚠️ RAGE QUIT GEFAHR ⚠️\n\nHände weg von der Tastatur!\nAtme tief durch... 🧘"
+    if not MIXER_VERFUEGBAR:
+        text += "\n\n(Hinweis: Musik ist deaktiviert)"
+    
     tk.Label(
         zen,
-        text="⚠️ RAGE QUIT GEFAHR ⚠️\n\nHände weg von der Tastatur!\nAtme tief durch... 🧘",
+        text=text,
         font=("Helvetica", 20, "bold"),
         fg="white",
         bg="#2c3e50",
@@ -235,10 +270,11 @@ def loese_zen_modus_aus() -> None:
 
     def schliesse_zen() -> None:
         global beruhigungs_modus
-        try:
-            pygame.mixer.music.stop()
-        except Exception as e:
-            log.error("Musik konnte nicht gestoppt werden: %s", e)
+        if MIXER_VERFUEGBAR:
+            try:
+                pygame.mixer.music.stop()
+            except Exception as e:
+                log.error("Musik konnte nicht gestoppt werden: %s", e)
 
         with _lock:
             anschlaege.clear()
@@ -250,7 +286,7 @@ def loese_zen_modus_aus() -> None:
     zen.after(ZEN_DAUER_MS, schliesse_zen)
 
 # ------------------------------------------------------------
-# 9. Fenster verschieben (Drag)
+# 10. Fenster verschieben (Drag)
 # ------------------------------------------------------------
 _drag_x: int = 0
 _drag_y: int = 0
@@ -265,24 +301,24 @@ def do_move(event: tk.Event) -> None:
     root.geometry(f"+{x}+{y}")
 
 # ------------------------------------------------------------
-# 10. Sauberes Beenden
+# 11. Sauberes Beenden
 # ------------------------------------------------------------
 def programm_beenden() -> None:
     log.info("Programm wird beendet.")
-    try:
-        pygame.mixer.music.stop()
-        pygame.mixer.quit()
-    except:
-        pass
+    if MIXER_VERFUEGBAR:
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.quit()
+        except:
+            pass
     root.destroy()
 
 # ------------------------------------------------------------
-# 11. Hauptprogramm
+# 12. Hauptprogramm
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    # Pygame Mixer initialisieren
-    pygame.mixer.init()
-
+    # Mixer ist bereits getestet (siehe oben)
+    
     # Playlist laden (falls vorhanden)
     lade_playlist()
 
@@ -299,6 +335,9 @@ if __name__ == "__main__":
     root.configure(bg=TRANSPARENT)
     root.wm_attributes("-transparentcolor", TRANSPARENT)
     root.geometry("+1500+100")
+
+    # Falls Mixer nicht verfügbar, Buttons deaktivieren (optional)
+    btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
 
     # Haupt-Frame
     frame = tk.Frame(root, bg=TRANSPARENT)
@@ -346,6 +385,7 @@ if __name__ == "__main__":
         activebackground="#34495e",
         activeforeground="white",
         cursor="hand2",
+        state=btn_state,
         command=vorheriger_song
     )
     btn_prev.pack(side="left", padx=5)
@@ -361,6 +401,7 @@ if __name__ == "__main__":
         activebackground="#34495e",
         activeforeground="white",
         cursor="hand2",
+        state=btn_state,
         command=scan_und_spiele
     )
     btn_play_scan.pack(side="left", padx=5)
@@ -376,6 +417,7 @@ if __name__ == "__main__":
         activebackground="#34495e",
         activeforeground="white",
         cursor="hand2",
+        state=btn_state,
         command=spiele_naechsten_song
     )
     btn_next.pack(side="left", padx=5)
@@ -387,6 +429,17 @@ if __name__ == "__main__":
 
     # WPM-Überwachung starten
     analysiere_tippgeschwindigkeit()
+
+    # Hinweis bei deaktivierter Musik
+    if not MIXER_VERFUEGBAR:
+        log.info("Hinweis: Musik-Buttons sind deaktiviert (kein pygame.mixer)")
+        # Kurzes Popup beim Start
+        root.after(1000, lambda: messagebox.showinfo(
+            "Musik deaktiviert",
+            "pygame.mixer ist nicht verfügbar.\n"
+            "Die Musiksteuerung wurde deaktiviert.\n"
+            "Das WPM-Overlay funktioniert trotzdem."
+        ))
 
     # Hauptschleife
     root.mainloop()
