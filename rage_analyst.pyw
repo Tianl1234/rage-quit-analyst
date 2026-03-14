@@ -6,6 +6,7 @@ Verbesserungen:
   - Sauberes Beenden (kein os._exit)
   - WPM-Berechnung präzise und geglättet (Stoßdämpfer)
   - Fehlerresistente Audio-Logik (verhindert Einfrieren)
+  - Musiksteuerung (Playlist scannen, vor/zurück) mit Spotify-ähnlichen Buttons
 """
 
 import os
@@ -60,29 +61,51 @@ def lade_playlist() -> None:
         f for f in os.listdir() if f.lower().endswith(".mp3")
     )
     log.info("Playlist geladen: %d Songs gefunden", len(playlist))
-
-def spiele_naechsten_song() -> None:
-    """Spielt den nächsten Song und plant automatisch den übernächsten."""
-    global aktueller_song_index
-
     if not playlist:
-        log.warning("Playlist ist leer – kein Song wird gespielt.")
+        log.warning("Keine MP3-Dateien im aktuellen Verzeichnis!")
+
+def spiele_song(index: int) -> None:
+    """Spielt den Song an Position `index` der Playlist."""
+    if not playlist:
+        log.warning("Keine Playlist geladen – nichts abgespielt.")
         return
 
-    song = playlist[aktueller_song_index]
-    aktueller_song_index = (aktueller_song_index + 1) % len(playlist)
-
+    idx = index % len(playlist)  # sicherheitshalber Modulo
+    song = playlist[idx]
     try:
         pygame.mixer.music.load(song)
-        # loops=-1 wenn nur 1 Song, sonst einmalig + auto-weiter
-        loops = -1 if len(playlist) == 1 else 0
-        pygame.mixer.music.play(loops=loops)
+        pygame.mixer.music.play()
         log.info("Spiele: %s", song)
 
+        # Watcher nur starten, wenn mehr als ein Song vorhanden
         if len(playlist) > 1:
             root.after(SONG_CHECK_MS, _song_watcher)
-    except Exception as exc:
-        log.error("Fehler beim Abspielen von '%s': %s", song, exc)
+    except Exception as e:
+        log.error("Fehler beim Abspielen von '%s': %s", song, e)
+
+def spiele_naechsten_song() -> None:
+    global aktueller_song_index
+    if not playlist:
+        return
+    aktueller_song_index = (aktueller_song_index + 1) % len(playlist)
+    spiele_song(aktueller_song_index)
+
+def vorheriger_song() -> None:
+    global aktueller_song_index
+    if not playlist:
+        return
+    aktueller_song_index = (aktueller_song_index - 1) % len(playlist)
+    spiele_song(aktueller_song_index)
+
+def scan_und_spiele() -> None:
+    global playlist, aktueller_song_index
+    lade_playlist()                      # Verzeichnis neu einlesen
+    if playlist:
+        aktueller_song_index = 0
+        spiele_song(0)
+        log.info("Scan abgeschlossen – erster Song gestartet.")
+    else:
+        log.warning("Keine MP3-Dateien gefunden – nichts abgespielt.")
 
 def _song_watcher() -> None:
     """Prüft ob der aktuelle Song zu Ende ist und spielt ggf. den nächsten."""
@@ -232,11 +255,16 @@ if __name__ == "__main__":
     root.wm_attributes("-transparentcolor", TRANSPARENT)
     root.geometry("+1500+100")
 
+    # Haupt-Frame (transparent)
     frame = tk.Frame(root, bg=TRANSPARENT)
     frame.pack()
 
+    # ---- Zeile 1: WPM-Anzeige + Schließen-Button ----
+    zeile1 = tk.Frame(frame, bg=TRANSPARENT)
+    zeile1.pack(side="top", fill="x")
+
     lbl_wpm = tk.Label(
-        frame,
+        zeile1,
         text="0 WPM 🐢",
         font=("Helvetica", 36, "bold"),
         fg="#4CAF50",
@@ -245,7 +273,7 @@ if __name__ == "__main__":
     lbl_wpm.pack(side="left", padx=10)
 
     btn_close = tk.Button(
-        frame,
+        zeile1,
         text="✖",
         font=("Arial", 8),
         fg="gray",
@@ -258,7 +286,61 @@ if __name__ == "__main__":
     )
     btn_close.pack(side="right", anchor="n")
 
-    # Drag-Bindungen
+    # ---- Zeile 2: Steuerungs-Buttons (Spotify-Stil) ----
+    zeile2 = tk.Frame(frame, bg=TRANSPARENT)
+    zeile2.pack(side="top", fill="x", pady=(0, 5))
+
+    btn_prev = tk.Button(
+        zeile2,
+        text="⏮",                     # Vorher-Symbol
+        font=("Segoe UI", 14),
+        fg="white",
+        bg="#2c3e50",
+        bd=0,
+        padx=10,
+        activebackground="#34495e",
+        activeforeground="white",
+        cursor="hand2",
+        command=vorheriger_song
+    )
+    btn_prev.pack(side="left", padx=5)
+
+    btn_play_scan = tk.Button(
+        zeile2,
+        text="🔍 ▶",                  # Symbol für Scannen & Play
+        font=("Segoe UI", 14),
+        fg="white",
+        bg="#2c3e50",
+        bd=0,
+        padx=10,
+        activebackground="#34495e",
+        activeforeground="white",
+        cursor="hand2",
+        command=scan_und_spiele
+    )
+    btn_play_scan.pack(side="left", padx=5)
+
+    btn_next = tk.Button(
+        zeile2,
+        text="⏭",                     # Nächstes Symbol
+        font=("Segoe UI", 14),
+        fg="white",
+        bg="#2c3e50",
+        bd=0,
+        padx=10,
+        activebackground="#34495e",
+        activeforeground="white",
+        cursor="hand2",
+        command=spiele_naechsten_song
+    )
+    btn_next.pack(side="left", padx=5)
+
+    # Drag-Funktionalität auch auf die neuen Buttons ausweiten
+    for widget in (btn_prev, btn_play_scan, btn_next):
+        widget.bind("<ButtonPress-1>", start_move)
+        widget.bind("<B1-Motion>", do_move)
+
+    # Drag für WPM-Label und Haupt-Frame (wie bisher)
     for widget in (lbl_wpm, frame):
         widget.bind("<ButtonPress-1>", start_move)
         widget.bind("<B1-Motion>", do_move)
