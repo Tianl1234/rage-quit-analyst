@@ -1,14 +1,11 @@
 """
 WPM Live-Overlay mit Rage-Detection & Zen-Modus
 ================================================
-Verbesserungen gegenüber Original:
+Verbesserungen:
   - Thread-sicherer Zugriff auf `anschlaege` via threading.Lock
   - Sauberes Beenden (kein os._exit)
-  - Playlist-Logik repariert (Song-Ende-Erkennung funktioniert korrekt)
-  - Konsistentes ZEITFENSTER (Kommentar ↔ Code)
-  - Alle Magic-Numbers als benannte Konstanten
-  - Typ-Annotationen durchgehend
-  - WPM-Berechnung präziser (rollendes Fenster)
+  - WPM-Berechnung präzise und geglättet (Stoßdämpfer)
+  - Fehlerresistente Audio-Logik (verhindert Einfrieren)
 """
 
 import os
@@ -50,7 +47,6 @@ def on_press(key) -> None:
     with _lock:
         anschlaege.append(time.time())
 
-
 def starte_keylogger() -> None:
     with keyboard.Listener(on_press=on_press) as listener:
         listener.join()
@@ -64,7 +60,6 @@ def lade_playlist() -> None:
         f for f in os.listdir() if f.lower().endswith(".mp3")
     )
     log.info("Playlist geladen: %d Songs gefunden", len(playlist))
-
 
 def spiele_naechsten_song() -> None:
     """Spielt den nächsten Song und plant automatisch den übernächsten."""
@@ -88,7 +83,6 @@ def spiele_naechsten_song() -> None:
             root.after(SONG_CHECK_MS, _song_watcher)
     except Exception as exc:
         log.error("Fehler beim Abspielen von '%s': %s", song, exc)
-
 
 def _song_watcher() -> None:
     """Prüft ob der aktuelle Song zu Ende ist und spielt ggf. den nächsten."""
@@ -116,7 +110,6 @@ def get_wpm_emoji_und_farbe(wpm: int) -> tuple[str, str]:
             return emoji, farbe
     return "🤬", "#F44336"
 
-
 def berechne_wpm() -> int:
     """Thread-sicher: liest Anschläge, bereinigt altes Fenster, berechnet WPM."""
     jetzt = time.time()
@@ -131,9 +124,9 @@ def berechne_wpm() -> int:
             return 0
 
         vergangen = jetzt - anschlaege[0]
-        vergangen = max(vergangen, 0.1)   # Division durch 0 vermeiden
+        # FIX: Stoßdämpfer auf 2.0 setzen, damit die Zahl bei schnellen ersten Klicks nicht explodiert
+        vergangen = max(vergangen, 2.0)   
         return round((len(anschlaege) / ZEICHEN_PRO_WORT) / (vergangen / 60))
-
 
 def analysiere_tippgeschwindigkeit() -> None:
     global beruhigungs_modus
@@ -175,9 +168,16 @@ def loese_zen_modus_aus() -> None:
 
     def schliesse_zen() -> None:
         global beruhigungs_modus
-        pygame.mixer.music.stop()
+        
+        # Sicherstellen, dass das Stoppen der Musik keinen Fehler wirft, der das Fenster blockiert
+        try:
+            pygame.mixer.music.stop()
+        except Exception as e:
+            log.error("Musik konnte nicht gestoppt werden: %s", e)
+            
         with _lock:
             anschlaege.clear()
+            
         beruhigungs_modus = False
         log.info("Zen-Modus beendet.")
         zen.destroy()
@@ -204,14 +204,20 @@ def do_move(event: tk.Event) -> None:
 # ---------------------------------------------------------
 def programm_beenden() -> None:
     log.info("Programm wird beendet.")
-    pygame.mixer.music.stop()
-    pygame.mixer.quit()
+    try:
+        pygame.mixer.music.stop()
+        pygame.mixer.quit()
+    except:
+        pass
     root.destroy()   # mainloop endet → Prozess terminiert sauber
 
 # ---------------------------------------------------------
 # 9. Main
 # ---------------------------------------------------------
 if __name__ == "__main__":
+    # FIX: Pygame Mixer explizit initialisieren, sonst stürzt das Programm beim Audio-Stoppen ab!
+    pygame.mixer.init() 
+    
     lade_playlist()
 
     keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
