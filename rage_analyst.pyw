@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 # ===== Error logging for .pyw mode =====
 import sys
 import traceback
@@ -103,7 +106,7 @@ ZEITFENSTER_SEK: float = 5.0       # rolling window for WPM (seconds)
 RAGE_SCHWELLE: int     = 100       # WPM that triggers Zen Mode
 ZEN_DAUER_MS: int      = 5_000     # how long Zen popup stays (milliseconds)
 ZEICHEN_PRO_WORT: int  = 5         # average characters per word
-POLL_INTERVAL_MS: int  = 150       # how often to update WPM (ms)
+POLL_INTERVAL_MS: int  = 10        # how often to update WPM (ms) – geändert auf 10 ms
 SONG_CHECK_MS: int     = 1_000     # how often to check if song ended (ms)
 
 # Global state (thread‑safe)
