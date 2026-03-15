@@ -437,42 +437,83 @@ def volume_changed(val):
 # 14. Settings window
 # ------------------------------------------------------------
 def open_settings():
+    # Benutzerdefiniertes Fenster mit abgerundeten Ecken
     settings = tk.Toplevel(root)
-    settings.title("Einstellungen")
-    settings.geometry("600x500")
+    settings.title("")
+    settings.geometry("650x550")
     settings.resizable(False, False)
     settings.transient(root)
     settings.grab_set()
+    settings.overrideredirect(True)  # Eigene Fensterdekoration
 
-    # Notebook for tabs
-    notebook = ttk.Notebook(settings)
+    # Canvas für abgerundeten Hintergrund
+    canvas = tk.Canvas(settings, width=650, height=550, bg="#2b2b2b", highlightthickness=0)
+    canvas.pack()
+
+    # Abgerundetes Rechteck zeichnen
+    corner_radius = 20
+    canvas.create_round_rect(5, 5, 645, 545, r=corner_radius, fill="#3c3f41", outline="#4a4a4a", width=2)
+
+    # Eigene Titelleiste
+    title_bar = tk.Frame(settings, bg="#2b2b2b", height=30)
+    title_bar.place(x=10, y=10, width=630)
+
+    title_label = tk.Label(title_bar, text="⚙️ Einstellungen", font=("Segoe UI", 12, "bold"),
+                           fg="#ffffff", bg="#2b2b2b")
+    title_label.pack(side="left", padx=10)
+
+    # Schließen-Button
+    close_btn = tk.Button(title_bar, text="✕", font=("Segoe UI", 12, "bold"),
+                          fg="#ffffff", bg="#2b2b2b", bd=0, activebackground="#c42b1c",
+                          activeforeground="#ffffff", cursor="hand2",
+                          command=settings.destroy)
+    close_btn.pack(side="right", padx=10)
+
+    # Hauptframe (auf dem Canvas)
+    main_frame = tk.Frame(settings, bg="#3c3f41")
+    main_frame.place(x=15, y=50, width=620, height=485)
+
+    # Notebook mit größerer Schrift
+    style = ttk.Style()
+    style.theme_use("clam")
+    style.configure("TNotebook.Tab", font=("Segoe UI", 10), padding=[10, 5])
+    style.configure("TNotebook", background="#3c3f41")
+    style.map("TNotebook.Tab", background=[("selected", "#4c5052")])
+
+    notebook = ttk.Notebook(main_frame)
     notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
     # Tab 1: WPM Stufen
     frame_stufen = ttk.Frame(notebook)
     notebook.add(frame_stufen, text="WPM Stufen")
 
-    # Treeview for stufen
+    # Treeview mit größerer Schrift
+    tree_frame = tk.Frame(frame_stufen, bg="#3c3f41")
+    tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
+
     columns = ("Schwellwert", "Emoji", "Farbe")
-    tree = ttk.Treeview(frame_stufen, columns=columns, show="headings", height=8)
+    tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=8)
     tree.heading("Schwellwert", text="WPM <")
     tree.heading("Emoji", text="Emoji")
     tree.heading("Farbe", text="Farbe (Hex)")
-    tree.column("Schwellwert", width=100, anchor="center")
+    tree.column("Schwellwert", width=120, anchor="center")
     tree.column("Emoji", width=100, anchor="center")
-    tree.column("Farbe", width=150, anchor="center")
+    tree.column("Farbe", width=180, anchor="center")
 
-    # Scrollbar
-    scrollbar = ttk.Scrollbar(frame_stufen, orient="vertical", command=tree.yview)
+    # Schrift im Tree vergrößern
+    style.configure("Treeview", font=("Segoe UI", 10), rowheight=25)
+    style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
+
+    scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=scrollbar.set)
-    tree.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+    tree.grid(row=0, column=0, sticky="nsew")
     scrollbar.grid(row=0, column=1, sticky="ns")
-    frame_stufen.grid_rowconfigure(0, weight=1)
-    frame_stufen.grid_columnconfigure(0, weight=1)
+    tree_frame.grid_rowconfigure(0, weight=1)
+    tree_frame.grid_columnconfigure(0, weight=1)
 
-    # Buttons for stufen
-    btn_frame = ttk.Frame(frame_stufen)
-    btn_frame.grid(row=1, column=0, columnspan=2, pady=10)
+    # Buttons für Stufen (mit größerer Schrift)
+    btn_frame = tk.Frame(frame_stufen, bg="#3c3f41")
+    btn_frame.pack(pady=10)
 
     def load_stufen_into_tree():
         tree.delete(*tree.get_children())
@@ -482,23 +523,34 @@ def open_settings():
     load_stufen_into_tree()
 
     def add_stufe():
-        # Simple dialog to enter values
+        # Dialog-Fenster ebenfalls hübscher
         new_window = tk.Toplevel(settings)
         new_window.title("Neue Stufe")
-        new_window.geometry("300x200")
+        new_window.geometry("350x250")
         new_window.transient(settings)
         new_window.grab_set()
+        new_window.configure(bg="#3c3f41")
 
-        tk.Label(new_window, text="Schwellwert (WPM <):").pack(pady=5)
-        entry_schwelle = tk.Entry(new_window)
+        # Abgerundete Ecken für Dialog
+        new_window.overrideredirect(True)
+        dialog_canvas = tk.Canvas(new_window, width=350, height=250, bg="#2b2b2b", highlightthickness=0)
+        dialog_canvas.pack()
+        dialog_canvas.create_round_rect(5, 5, 345, 245, r=15, fill="#3c3f41", outline="#4a4a4a", width=2)
+
+        # Inhalt
+        content = tk.Frame(new_window, bg="#3c3f41")
+        content.place(x=10, y=10, width=330, height=230)
+
+        tk.Label(content, text="Schwellwert (WPM <):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_schwelle = tk.Entry(content, font=("Segoe UI", 10))
         entry_schwelle.pack()
 
-        tk.Label(new_window, text="Emoji:").pack(pady=5)
-        entry_emoji = tk.Entry(new_window)
+        tk.Label(content, text="Emoji:", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_emoji = tk.Entry(content, font=("Segoe UI", 10))
         entry_emoji.pack()
 
-        tk.Label(new_window, text="Farbe (Hex oder Name):").pack(pady=5)
-        entry_farbe = tk.Entry(new_window)
+        tk.Label(content, text="Farbe (Hex oder Name):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_farbe = tk.Entry(content, font=("Segoe UI", 10))
         entry_farbe.pack()
 
         def pick_color():
@@ -507,7 +559,8 @@ def open_settings():
                 entry_farbe.delete(0, tk.END)
                 entry_farbe.insert(0, color)
 
-        tk.Button(new_window, text="Farbe auswählen", command=pick_color).pack(pady=5)
+        tk.Button(content, text="Farbe auswählen", font=("Segoe UI", 10), command=pick_color,
+                  bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(pady=5)
 
         def save_new():
             try:
@@ -515,7 +568,6 @@ def open_settings():
                 emoji = entry_emoji.get()
                 farbe = entry_farbe.get()
                 config["wpm_stufen"].append([schwelle, emoji, farbe])
-                # Sort by threshold
                 config["wpm_stufen"].sort(key=lambda x: x[0])
                 save_config()
                 load_stufen_into_tree()
@@ -523,7 +575,9 @@ def open_settings():
             except ValueError:
                 messagebox.showerror("Fehler", "Schwellwert muss eine Zahl sein")
 
-        tk.Button(new_window, text="Speichern", command=save_new).pack(pady=10)
+        tk.Button(content, text="Speichern", font=("Segoe UI", 10, "bold"),
+                  bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
+                  command=save_new).pack(pady=10)
 
     def edit_stufe():
         selected = tree.selection()
@@ -536,22 +590,31 @@ def open_settings():
 
         new_window = tk.Toplevel(settings)
         new_window.title("Stufe bearbeiten")
-        new_window.geometry("300x200")
+        new_window.geometry("350x250")
         new_window.transient(settings)
         new_window.grab_set()
+        new_window.configure(bg="#3c3f41")
 
-        tk.Label(new_window, text="Schwellwert (WPM <):").pack(pady=5)
-        entry_schwelle = tk.Entry(new_window)
+        new_window.overrideredirect(True)
+        dialog_canvas = tk.Canvas(new_window, width=350, height=250, bg="#2b2b2b", highlightthickness=0)
+        dialog_canvas.pack()
+        dialog_canvas.create_round_rect(5, 5, 345, 245, r=15, fill="#3c3f41", outline="#4a4a4a", width=2)
+
+        content = tk.Frame(new_window, bg="#3c3f41")
+        content.place(x=10, y=10, width=330, height=230)
+
+        tk.Label(content, text="Schwellwert (WPM <):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_schwelle = tk.Entry(content, font=("Segoe UI", 10))
         entry_schwelle.insert(0, values[0])
         entry_schwelle.pack()
 
-        tk.Label(new_window, text="Emoji:").pack(pady=5)
-        entry_emoji = tk.Entry(new_window)
+        tk.Label(content, text="Emoji:", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_emoji = tk.Entry(content, font=("Segoe UI", 10))
         entry_emoji.insert(0, values[1])
         entry_emoji.pack()
 
-        tk.Label(new_window, text="Farbe (Hex oder Name):").pack(pady=5)
-        entry_farbe = tk.Entry(new_window)
+        tk.Label(content, text="Farbe (Hex oder Name):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
+        entry_farbe = tk.Entry(content, font=("Segoe UI", 10))
         entry_farbe.insert(0, values[2])
         entry_farbe.pack()
 
@@ -561,14 +624,14 @@ def open_settings():
                 entry_farbe.delete(0, tk.END)
                 entry_farbe.insert(0, color)
 
-        tk.Button(new_window, text="Farbe auswählen", command=pick_color).pack(pady=5)
+        tk.Button(content, text="Farbe auswählen", font=("Segoe UI", 10), command=pick_color,
+                  bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(pady=5)
 
         def save_edit():
             try:
                 schwelle = int(entry_schwelle.get())
                 emoji = entry_emoji.get()
                 farbe = entry_farbe.get()
-                # Find and replace
                 for i, st in enumerate(config["wpm_stufen"]):
                     if st[0] == values[0] and st[1] == values[1] and st[2] == values[2]:
                         config["wpm_stufen"][i] = [schwelle, emoji, farbe]
@@ -580,7 +643,9 @@ def open_settings():
             except ValueError:
                 messagebox.showerror("Fehler", "Schwellwert muss eine Zahl sein")
 
-        tk.Button(new_window, text="Speichern", command=save_edit).pack(pady=10)
+        tk.Button(content, text="Speichern", font=("Segoe UI", 10, "bold"),
+                  bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
+                  command=save_edit).pack(pady=10)
 
     def delete_stufe():
         selected = tree.selection()
@@ -598,48 +663,62 @@ def open_settings():
             save_config()
             load_stufen_into_tree()
 
-    ttk.Button(btn_frame, text="Hinzufügen", command=add_stufe).pack(side="left", padx=5)
-    ttk.Button(btn_frame, text="Bearbeiten", command=edit_stufe).pack(side="left", padx=5)
-    ttk.Button(btn_frame, text="Löschen", command=delete_stufe).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="➕ Hinzufügen", font=("Segoe UI", 10), command=add_stufe,
+              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="✏️ Bearbeiten", font=("Segoe UI", 10), command=edit_stufe,
+              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
+    tk.Button(btn_frame, text="🗑️ Löschen", font=("Segoe UI", 10), command=delete_stufe,
+              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
 
-    # Tab 2: Overlay-Einstellungen
+    # Tab 2: Overlay
     frame_overlay = ttk.Frame(notebook)
     notebook.add(frame_overlay, text="Overlay")
 
-    # Schriftgröße
-    ttk.Label(frame_overlay, text="Schriftgröße WPM:").grid(row=0, column=0, sticky="w", padx=10, pady=10)
+    overlay_content = tk.Frame(frame_overlay, bg="#3c3f41")
+    overlay_content.pack(fill="both", expand=True, padx=20, pady=20)
+
+    tk.Label(overlay_content, text="Schriftgröße WPM:", font=("Segoe UI", 11), fg="white", bg="#3c3f41").grid(row=0, column=0, sticky="w", pady=10)
     font_var = tk.IntVar(value=config["font_size"])
-    font_spin = ttk.Spinbox(frame_overlay, from_=10, to=100, textvariable=font_var, width=10)
+    font_spin = ttk.Spinbox(overlay_content, from_=10, to=100, textvariable=font_var, width=10, font=("Segoe UI", 10))
     font_spin.grid(row=0, column=1, padx=10, pady=10)
 
-    # Vorschau-Label (optional)
-    preview = tk.Label(frame_overlay, text="123 WPM 🐢", font=("Helvetica", config["font_size"]), fg="#4CAF50")
+    preview = tk.Label(overlay_content, text="123 WPM 🐢", font=("Helvetica", config["font_size"]), fg="#4CAF50", bg="#3c3f41")
     preview.grid(row=1, column=0, columnspan=2, pady=10)
 
     def update_preview(*args):
         preview.config(font=("Helvetica", font_var.get()))
     font_var.trace_add("write", update_preview)
 
-    # Position (wird beim Verschieben gespeichert, hier nur Info)
-    ttk.Label(frame_overlay, text=f"Aktuelle Position: X={config['window_x']}, Y={config['window_y']} (wird beim Verschieben gespeichert)").grid(row=2, column=0, columnspan=2, pady=10)
+    tk.Label(overlay_content, text=f"Position: X={config['window_x']}, Y={config['window_y']} (wird beim Verschieben gespeichert)",
+             font=("Segoe UI", 10), fg="#cccccc", bg="#3c3f41").grid(row=2, column=0, columnspan=2, pady=10)
 
-    # Tab 3: Info
-    frame_info = ttk.Frame(notebook)
-    notebook.add(frame_info, text="Info")
-    ttk.Label(frame_info, text="WPM Overlay mit Rage Detection\nVersion 2.0\n\nEinstellungen werden automatisch gespeichert.").pack(pady=20)
-
-    # Save button for overlay settings
     def save_overlay_settings():
         config["font_size"] = font_var.get()
         save_config()
         lbl_wpm.config(font=("Helvetica", config["font_size"]))
         messagebox.showinfo("Info", "Einstellungen gespeichert")
 
-    ttk.Button(frame_overlay, text="Speichern", command=save_overlay_settings).grid(row=3, column=0, columnspan=2, pady=10)
+    tk.Button(overlay_content, text="Speichern", font=("Segoe UI", 11, "bold"),
+              bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
+              command=save_overlay_settings).grid(row=3, column=0, columnspan=2, pady=10)
 
-    # Close button
-    ttk.Button(settings, text="Schließen", command=settings.destroy).pack(pady=5)
+    # Tab 3: Info
+    frame_info = ttk.Frame(notebook)
+    notebook.add(frame_info, text="Info")
 
+    info_content = tk.Frame(frame_info, bg="#3c3f41")
+    info_content.pack(fill="both", expand=True, padx=20, pady=20)
+
+    tk.Label(info_content, text="WPM Overlay mit Rage Detection", font=("Segoe UI", 14, "bold"),
+             fg="white", bg="#3c3f41").pack(pady=10)
+    tk.Label(info_content, text="Version 2.0", font=("Segoe UI", 11), fg="#cccccc", bg="#3c3f41").pack()
+    tk.Label(info_content, text="Einstellungen werden automatisch gespeichert.", font=("Segoe UI", 10),
+             fg="#cccccc", bg="#3c3f41").pack(pady=20)
+
+    # Schließen-Button unten (optional)
+    tk.Button(settings, text="Schließen", font=("Segoe UI", 11, "bold"),
+              bg="#4c5052", fg="white", bd=0, padx=30, pady=5,
+              command=settings.destroy).place(x=275, y=505, width=100)
 # ------------------------------------------------------------
 # 15. Clean exit
 # ------------------------------------------------------------
