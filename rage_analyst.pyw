@@ -84,6 +84,15 @@ for pkg in REQUIRED_PACKAGES:
 from pynput import keyboard
 import pygame
 
+# Hilfsfunktion für abgerundete Rechtecke im Canvas
+def _create_round_rect(self, x1, y1, x2, y2, r=25, **kwargs):
+    points = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1,
+              x2, y1+r, x2, y1+r, x2, y2-r, x2, y2-r, x2, y2,
+              x2-r, y2, x2-r, y2, x1+r, y2, x1+r, y2, x1, y2,
+              x1, y2-r, x1, y2-r, x1, y1+r, x1, y1+r, x1, y1)
+    return self.create_polygon(points, smooth=True, **kwargs)
+
+tk.Canvas.create_round_rect = _create_round_rect
 # ------------------------------------------------------------
 # 4. Check mixer availability
 # ------------------------------------------------------------
