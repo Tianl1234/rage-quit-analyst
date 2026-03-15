@@ -646,203 +646,217 @@ def programm_beenden() -> None:
     root.destroy()
 
 # ------------------------------------------------------------
-# 16. Main program
+# 16. Main program with error handling
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    # Load playlist (if any)
-    lade_playlist()
+    try:
+        # Load playlist (if any)
+        lade_playlist()
 
-    # Start keylogger thread
-    keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
-    keylogger_thread.start()
+        # Start keylogger thread
+        keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
+        keylogger_thread.start()
 
-    # Create main window
-    root = tk.Tk()
-    root.overrideredirect(True)
-    root.attributes("-topmost", True)
+        # Create main window
+        root = tk.Tk()
+        root.overrideredirect(True)
+        root.attributes("-topmost", True)
 
-    TRANSPARENT = "#000001"
-    root.configure(bg=TRANSPARENT)
-    root.wm_attributes("-transparentcolor", TRANSPARENT)
-    root.geometry(f"+{config['window_x']}+{config['window_y']}")
+        TRANSPARENT = "#000001"
+        root.configure(bg=TRANSPARENT)
+        root.wm_attributes("-transparentcolor", TRANSPARENT)
+        root.geometry(f"+{config['window_x']}+{config['window_y']}")
 
-    # If mixer unavailable, disable music buttons and volume
-    btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
-    volume_state = tk.NORMAL if MIXER_VERFUEGBAR else tk.DISABLED
+        # If mixer unavailable, disable music buttons and volume
+        btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
+        volume_state = tk.NORMAL if MIXER_VERFUEGBAR else tk.DISABLED
 
-    # Main frame
-    frame = tk.Frame(root, bg=TRANSPARENT)
-    frame.pack()
+        # Main frame
+        frame = tk.Frame(root, bg=TRANSPARENT)
+        frame.pack()
 
-    # ---- Row 1: WPM display + close button + settings button ----
-    zeile1 = tk.Frame(frame, bg=TRANSPARENT)
-    zeile1.pack(side="top", fill="x")
+        # ---- Row 1: WPM display + close button + settings button ----
+        zeile1 = tk.Frame(frame, bg=TRANSPARENT)
+        zeile1.pack(side="top", fill="x")
 
-    lbl_wpm = tk.Label(
-        zeile1,
-        text="0 WPM 🐢",
-        font=("Helvetica", config["font_size"], "bold"),
-        fg="#4CAF50",
-        bg=TRANSPARENT,
-    )
-    lbl_wpm.pack(side="left", padx=10)
+        lbl_wpm = tk.Label(
+            zeile1,
+            text="0 WPM 🐢",
+            font=("Helvetica", config["font_size"], "bold"),
+            fg="#4CAF50",
+            bg=TRANSPARENT,
+        )
+        lbl_wpm.pack(side="left", padx=10)
 
-    btn_settings = tk.Button(
-        zeile1,
-        text="⚙️",
-        font=("Arial", 8),
-        fg="gray",
-        bg=TRANSPARENT,
-        bd=0,
-        activebackground=TRANSPARENT,
-        activeforeground="white",
-        cursor="hand2",
-        command=open_settings
-    )
-    btn_settings.pack(side="right", anchor="n", padx=2)
+        btn_settings = tk.Button(
+            zeile1,
+            text="⚙️",
+            font=("Arial", 8),
+            fg="gray",
+            bg=TRANSPARENT,
+            bd=0,
+            activebackground=TRANSPARENT,
+            activeforeground="white",
+            cursor="hand2",
+            command=open_settings
+        )
+        btn_settings.pack(side="right", anchor="n", padx=2)
 
-    btn_close = tk.Button(
-        zeile1,
-        text="✖",
-        font=("Arial", 8),
-        fg="gray",
-        bg=TRANSPARENT,
-        bd=0,
-        activebackground=TRANSPARENT,
-        activeforeground="white",
-        cursor="hand2",
-        command=programm_beenden,
-    )
-    btn_close.pack(side="right", anchor="n")
+        btn_close = tk.Button(
+            zeile1,
+            text="✖",
+            font=("Arial", 8),
+            fg="gray",
+            bg=TRANSPARENT,
+            bd=0,
+            activebackground=TRANSPARENT,
+            activeforeground="white",
+            cursor="hand2",
+            command=programm_beenden,
+        )
+        btn_close.pack(side="right", anchor="n")
 
-    # ---- Row 2: Music control buttons (hidden by default) ----
-    zeile2 = tk.Frame(frame, bg=TRANSPARENT)
+        # ---- Row 2: Music control buttons (hidden by default) ----
+        zeile2 = tk.Frame(frame, bg=TRANSPARENT)
 
-    # Previous button
-    btn_prev = tk.Button(
-        zeile2,
-        text="⏮",
-        font=("Segoe UI", 14),
-        fg="white",
-        bg="#2c3e50",
-        bd=0,
-        padx=10,
-        activebackground="#34495e",
-        activeforeground="white",
-        cursor="hand2",
-        state=btn_state,
-        command=vorheriger_song
-    )
-    btn_prev.pack(side="left", padx=5)
+        # Previous button
+        btn_prev = tk.Button(
+            zeile2,
+            text="⏮",
+            font=("Segoe UI", 14),
+            fg="white",
+            bg="#2c3e50",
+            bd=0,
+            padx=10,
+            activebackground="#34495e",
+            activeforeground="white",
+            cursor="hand2",
+            state=btn_state,
+            command=vorheriger_song
+        )
+        btn_prev.pack(side="left", padx=5)
 
-    # Scan & play button
-    btn_play_scan = tk.Button(
-        zeile2,
-        text="🔍 ▶",
-        font=("Segoe UI", 14),
-        fg="white",
-        bg="#2c3e50",
-        bd=0,
-        padx=10,
-        activebackground="#34495e",
-        activeforeground="white",
-        cursor="hand2",
-        state=btn_state,
-        command=scan_und_spiele
-    )
-    btn_play_scan.pack(side="left", padx=5)
+        # Scan & play button
+        btn_play_scan = tk.Button(
+            zeile2,
+            text="🔍 ▶",
+            font=("Segoe UI", 14),
+            fg="white",
+            bg="#2c3e50",
+            bd=0,
+            padx=10,
+            activebackground="#34495e",
+            activeforeground="white",
+            cursor="hand2",
+            state=btn_state,
+            command=scan_und_spiele
+        )
+        btn_play_scan.pack(side="left", padx=5)
 
-    # Next button
-    btn_next = tk.Button(
-        zeile2,
-        text="⏭",
-        font=("Segoe UI", 14),
-        fg="white",
-        bg="#2c3e50",
-        bd=0,
-        padx=10,
-        activebackground="#34495e",
-        activeforeground="white",
-        cursor="hand2",
-        state=btn_state,
-        command=spiele_naechsten_song
-    )
-    btn_next.pack(side="left", padx=5)
+        # Next button
+        btn_next = tk.Button(
+            zeile2,
+            text="⏭",
+            font=("Segoe UI", 14),
+            fg="white",
+            bg="#2c3e50",
+            bd=0,
+            padx=10,
+            activebackground="#34495e",
+            activeforeground="white",
+            cursor="hand2",
+            state=btn_state,
+            command=spiele_naechsten_song
+        )
+        btn_next.pack(side="left", padx=5)
 
-    # Pause button
-    btn_pause = tk.Button(
-        zeile2,
-        text="⏸️",
-        font=("Segoe UI", 14),
-        fg="white",
-        bg="#2c3e50",
-        bd=0,
-        padx=10,
-        activebackground="#34495e",
-        activeforeground="white",
-        cursor="hand2",
-        state=btn_state,
-        command=toggle_pause
-    )
-    btn_pause.pack(side="left", padx=5)
+        # Pause button
+        btn_pause = tk.Button(
+            zeile2,
+            text="⏸️",
+            font=("Segoe UI", 14),
+            fg="white",
+            bg="#2c3e50",
+            bd=0,
+            padx=10,
+            activebackground="#34495e",
+            activeforeground="white",
+            cursor="hand2",
+            state=btn_state,
+            command=toggle_pause
+        )
+        btn_pause.pack(side="left", padx=5)
 
-    # ---- Row 3: Title and volume (hidden by default) ----
-    zeile3 = tk.Frame(frame, bg=TRANSPARENT)
+        # ---- Row 3: Title and volume (hidden by default) ----
+        zeile3 = tk.Frame(frame, bg=TRANSPARENT)
 
-    # Title label
-    lbl_title = tk.Label(
-        zeile3,
-        text="",
-        font=("Arial", 10),
-        fg="white",
-        bg="#2c3e50",
-        padx=5,
-        pady=2
-    )
-    lbl_title.pack(side="left", padx=5)
+        # Title label
+        lbl_title = tk.Label(
+            zeile3,
+            text="",
+            font=("Arial", 10),
+            fg="white",
+            bg="#2c3e50",
+            padx=5,
+            pady=2
+        )
+        lbl_title.pack(side="left", padx=5)
 
-    # Volume slider
-    volume_var = tk.DoubleVar(value=50)  # default 50%
-    volume_scale = tk.Scale(
-        zeile3,
-        from_=0, to=100,
-        orient="horizontal",
-        variable=volume_var,
-        command=volume_changed,
-        length=100,
-        showvalue=0,
-        bg="#2c3e50",
-        fg="white",
-        troughcolor="#34495e",
-        sliderlength=20,
-        state=volume_state
-    )
-    volume_scale.pack(side="left", padx=5)
+        # Volume slider
+        volume_var = tk.DoubleVar(value=50)  # default 50%
+        volume_scale = tk.Scale(
+            zeile3,
+            from_=0, to=100,
+            orient="horizontal",
+            variable=volume_var,
+            command=volume_changed,
+            length=100,
+            showvalue=0,
+            bg="#2c3e50",
+            fg="white",
+            troughcolor="#34495e",
+            sliderlength=20,
+            state=volume_state
+        )
+        volume_scale.pack(side="left", padx=5)
 
-    # Initially hide rows 2 and 3
-    zeile2.pack_forget()
-    zeile3.pack_forget()
+        # Initially hide rows 2 and 3
+        zeile2.pack_forget()
+        zeile3.pack_forget()
 
-    # Bind double-click on WPM label to toggle music controls
-    lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
+        # Bind double-click on WPM label to toggle music controls
+        lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
 
-    # Make all visible widgets draggable (except volume scale – it has its own bindings)
-    for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, lbl_wpm, zeile1, frame):
-        widget.bind("<ButtonPress-1>", start_move)
-        widget.bind("<B1-Motion>", do_move)
+        # Make all visible widgets draggable (except volume scale – it has its own bindings)
+        for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, lbl_wpm, zeile1, frame):
+            widget.bind("<ButtonPress-1>", start_move)
+            widget.bind("<B1-Motion>", do_move)
 
-    # Start WPM monitoring
-    analysiere_tippgeschwindigkeit()
+        # Start WPM monitoring
+        analysiere_tippgeschwindigkeit()
 
-    # Info popup if music disabled
-    if not MIXER_VERFUEGBAR:
-        log.info("Note: Music controls disabled (pygame.mixer not available)")
-        root.after(1000, lambda: messagebox.showinfo(
-            "Music disabled",
-            "pygame.mixer is not available.\n"
-            "Music controls have been disabled.\n"
-            "The WPM overlay will still work."
-        ))
+        # Info popup if music disabled
+        if not MIXER_VERFUEGBAR:
+            log.info("Note: Music controls disabled (pygame.mixer not available)")
+            root.after(1000, lambda: messagebox.showinfo(
+                "Music disabled",
+                "pygame.mixer is not available.\n"
+                "Music controls have been disabled.\n"
+                "The WPM overlay will still work."
+            ))
 
-    # Main loop
-    root.mainloop()
+        # Main loop
+        root.mainloop()
+    except Exception as e:
+        # Critical error – write to file and show message box if possible
+        error_msg = f"Fatal error: {e}\n{traceback.format_exc()}"
+        with open("crash.log", "w", encoding="utf-8") as f:
+            f.write(error_msg)
+        # Try to show a message box (might fail if tk not initialized)
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Crash", f"Das Programm ist abgestürzt.\nFehler: {e}\nDetails in crash.log")
+        except:
+            pass
+        sys.exit(1)
