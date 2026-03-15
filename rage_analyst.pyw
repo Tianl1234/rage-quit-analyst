@@ -1,45 +1,47 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# ===== Error logging for .pyw mode =====
+# ===== GANZ AM ANFANG: KONSOLENFENSTER SOFORT VERSTECKEN =====
+import ctypes
 import sys
-import traceback
+if sys.platform == "win32":
+    # Versteckt das Konsolenfenster, falls es existiert (auch bei .pyw sicherheitshalber)
+    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
-# If no terminal (e.g. .pyw), redirect errors to a log file
-if not sys.stdout:
+# ===== Globale Fehlerbehandlung – fängt alles ab =====
+import traceback
+import tkinter as tk
+from tkinter import messagebox
+
+def show_error(exctype, value, tb):
+    error_msg = "".join(traceback.format_exception(exctype, value, tb))
     try:
-        log_file = open("fehler.log", "w", encoding="utf-8")
-        sys.stderr = log_file
-        sys.stdout = log_file
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Fataler Fehler", f"Das Skript ist abgestürzt:\n\n{error_msg}")
     except:
         pass
+    sys.__excepthook__(exctype, value, tb)
 
-# ===== Rest of imports =====
+sys.excepthook = show_error
+
+# ===== Restliche Imports =====
 import time
 import threading
 import logging
 import os
 import subprocess
-import json
-import tkinter as tk
-from tkinter import messagebox, ttk, colorchooser, simpledialog
-
-# Optionally hide console window (works even with .py)
-try:
-    import ctypes
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
-except:
-    pass
+from pynput import keyboard
+import pygame
 
 # ------------------------------------------------------------
-# 1. Check Python version (special handling for 3.13)
+# Python-Version prüfen (pynput ≥ 1.7.8 für 3.13)
 # ------------------------------------------------------------
 PY_VERSION = sys.version_info[:2]
 IS_PY313 = PY_VERSION >= (3, 13)
 
 if IS_PY313:
     print("🔔 Python 3.13 detected – enabling compatibility mode")
-    # pynput must be at least version 1.7.8
     try:
         import pynput
         if pynput.__version__ < "1.7.8":
@@ -49,7 +51,7 @@ if IS_PY313:
         pass
 
 # ------------------------------------------------------------
-# 2. Auto‑install missing packages
+# Fehlende Pakete automatisch installieren
 # ------------------------------------------------------------
 REQUIRED_PACKAGES = ["pynput", "pygame"]
 
@@ -73,28 +75,12 @@ for pkg in REQUIRED_PACKAGES:
                 "Installation Error",
                 f"Package '{pkg}' could not be installed.\n\n"
                 "Please run this command manually:\n"
-                f"  {sys.executable} -m pip install {pkg}\n\n"
-                "Make sure you have a working internet connection."
+                f"  {sys.executable} -m pip install {pkg}"
             )
             sys.exit(1)
 
 # ------------------------------------------------------------
-# 3. Now we can import the packages
-# ------------------------------------------------------------
-from pynput import keyboard
-import pygame
-
-# Hilfsfunktion für abgerundete Rechtecke im Canvas
-def _create_round_rect(self, x1, y1, x2, y2, r=25, **kwargs):
-    points = (x1+r, y1, x1+r, y1, x2-r, y1, x2-r, y1, x2, y1,
-              x2, y1+r, x2, y1+r, x2, y2-r, x2, y2-r, x2, y2,
-              x2-r, y2, x2-r, y2, x1+r, y2, x1+r, y2, x1, y2,
-              x1, y2-r, x1, y2-r, x1, y1+r, x1, y1+r, x1, y1)
-    return self.create_polygon(points, smooth=True, **kwargs)
-
-tk.Canvas.create_round_rect = _create_round_rect
-# ------------------------------------------------------------
-# 4. Check mixer availability
+# Mixer-Verfügbarkeit prüfen
 # ------------------------------------------------------------
 MIXER_VERFUEGBAR = False
 try:
@@ -106,81 +92,51 @@ except Exception as e:
     print("   Overlay will run without music functions.")
 
 # ------------------------------------------------------------
-# 5. Configuration handling
-# ------------------------------------------------------------
-CONFIG_FILE = "wpm_config.json"
-
-# Default configuration
-DEFAULT_CONFIG = {
-    "wpm_stufen": [
-        [20, "🐢", "#4CAF50"],
-        [40, "🐇", "#8BC34A"],
-        [60, "🚀", "#FFEB3B"],
-        [80, "🔥", "#FF9800"],
-        [100, "⚡", "#FF5722"],
-        [999, "🤬", "#F44336"]
-    ],
-    "font_size": 36,
-    "window_x": 1500,
-    "window_y": 100
-}
-
-config = DEFAULT_CONFIG.copy()
-
-def load_config():
-    global config
-    try:
-        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-            # Merge with defaults in case of missing keys
-            for key in DEFAULT_CONFIG:
-                if key not in loaded:
-                    loaded[key] = DEFAULT_CONFIG[key]
-            config = loaded
-    except FileNotFoundError:
-        save_config()  # create default file
-    except Exception as e:
-        print(f"⚠️ Could not load config: {e}")
-
-def save_config():
-    try:
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4)
-    except Exception as e:
-        print(f"⚠️ Could not save config: {e}")
-
-load_config()
-
-# ------------------------------------------------------------
-# 6. Main script with intelligent Zen music logic
+# Logging
 # ------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
-# Configuration from config
+# ------------------------------------------------------------
+# Feste Konfiguration (keine externe JSON)
+# ------------------------------------------------------------
 ZEITFENSTER_SEK: float = 5.0       # rolling window for WPM (seconds)
 RAGE_SCHWELLE: int     = 100       # WPM that triggers Zen Mode
 ZEN_DAUER_MS: int      = 5_000     # how long Zen popup stays (milliseconds)
 ZEICHEN_PRO_WORT: int  = 5         # average characters per word
-POLL_INTERVAL_MS: int  = 10        # how often to update WPM (ms) – changed to 10 ms
+POLL_INTERVAL_MS: int  = 10        # how often to update WPM (ms)
 SONG_CHECK_MS: int     = 1_000     # how often to check if song ended (ms)
+FONT_SIZE: int          = 36        # Schriftgröße der WPM-Anzeige
+WINDOW_X: int           = 1500      # Startposition X
+WINDOW_Y: int           = 100       # Startposition Y
 
-# Global state (thread‑safe)
+# Feste WPM-Stufen (wie im Original)
+WPM_STUFEN = [
+    (20,  "🐢", "#4CAF50"),
+    (40,  "🐇", "#8BC34A"),
+    (60,  "🚀", "#FFEB3B"),
+    (80,  "🔥", "#FF9800"),
+    (100, "⚡", "#FF5722"),
+    (999, "🤬", "#F44336"),
+]
+
+# ------------------------------------------------------------
+# Globaler Zustand (thread‑safe)
+# ------------------------------------------------------------
 _lock             = threading.Lock()
 anschlaege: list[float] = []
 beruhigungs_modus: bool  = False
 
 playlist: list[str]     = []
 aktueller_song_index: int = 0
-aktueller_song_titel: str = ""      # für Anzeige
-music_paused: bool = False           # für Pause-Funktion
+aktueller_song_titel: str = ""
+music_paused: bool = False
 
-# Flags for intelligent Zen music handling
-musik_lief_vor_zen: bool = False          # Was music playing before Zen Mode?
-musik_gestartet_durch_zen: bool = False   # Was the current song started by Zen Mode?
+musik_lief_vor_zen: bool = False
+musik_gestartet_durch_zen: bool = False
 
 # ------------------------------------------------------------
-# 7. Keylogger (pynput 1.7.8+ is compatible)
+# Keylogger
 # ------------------------------------------------------------
 def on_press(key) -> None:
     with _lock:
@@ -191,40 +147,29 @@ def starte_keylogger() -> None:
         listener.join()
 
 # ------------------------------------------------------------
-# 8. Playlist & Audio (with mixer check)
+# Playlist & Audio
 # ------------------------------------------------------------
 def lade_playlist() -> None:
     global playlist
-    playlist = sorted(
-        f for f in os.listdir() if f.lower().endswith(".mp3")
-    )
+    playlist = sorted(f for f in os.listdir() if f.lower().endswith(".mp3"))
     log.info("Playlist loaded: %d songs found", len(playlist))
     if not playlist:
         log.warning("No MP3 files in current directory!")
 
 def spiele_song(index: int) -> None:
-    """Play the song at position `index`. Used internally and by manual buttons."""
     global aktueller_song_titel, music_paused
-    if not MIXER_VERFUEGBAR:
-        log.warning("Mixer not available – cannot play")
+    if not MIXER_VERFUEGBAR or not playlist:
         return
-    if not playlist:
-        log.warning("No playlist loaded – nothing to play.")
-        return
-
     idx = index % len(playlist)
     song = playlist[idx]
-    aktueller_song_titel = os.path.splitext(song)[0]  # ohne .mp3
+    aktueller_song_titel = os.path.splitext(song)[0]
     try:
         pygame.mixer.music.load(song)
         pygame.mixer.music.play()
         music_paused = False
         log.info("Playing: %s", song)
-
         if len(playlist) > 1:
             root.after(SONG_CHECK_MS, _song_watcher)
-
-        # Update title label if visible
         if 'lbl_title' in globals() and lbl_title.winfo_exists():
             lbl_title.config(text=aktueller_song_titel)
     except Exception as e:
@@ -251,14 +196,10 @@ def scan_und_spiele() -> None:
         aktueller_song_index = 0
         spiele_song(0)
         log.info("Scan complete – first song started.")
-    elif not MIXER_VERFUEGBAR:
-        log.warning("Mixer not available – cannot play music")
-        if playlist:
-            messagebox.showinfo("Info", 
-                "Music functions are disabled because pygame.mixer is not available.\n"
-                "The WPM overlay will still work.")
+    elif not MIXER_VERFUEGBAR and playlist:
+        messagebox.showinfo("Info", "Music functions are disabled because pygame.mixer is not available.")
     else:
-        log.warning("No MP3 files found – nothing played.")
+        log.warning("No MP3 files found.")
 
 def toggle_pause():
     global music_paused
@@ -275,9 +216,19 @@ def toggle_pause():
         music_paused = True
         log.info("Music paused")
 
+def stop_music():
+    """Stoppt die Musik und setzt den Titel zurück."""
+    if not MIXER_VERFUEGBAR:
+        return
+    pygame.mixer.music.stop()
+    music_paused = False
+    btn_pause.config(text="⏸️")
+    aktueller_song_titel = ""
+    if 'lbl_title' in globals() and lbl_title.winfo_exists():
+        lbl_title.config(text="")
+    log.info("Music stopped")
+
 def _song_watcher() -> None:
-    """Called only when more than one song in playlist.
-       Checks if current song ended and plays next, but ONLY in Zen Mode."""
     if not MIXER_VERFUEGBAR:
         return
     if not pygame.mixer.music.get_busy() and not music_paused:
@@ -287,69 +238,56 @@ def _song_watcher() -> None:
         root.after(SONG_CHECK_MS, _song_watcher)
 
 # ------------------------------------------------------------
-# 9. WPM analysis (using configurable stufen)
+# WPM Analyse (feste Stufen)
 # ------------------------------------------------------------
 def get_wpm_emoji_und_farbe(wpm: int) -> tuple[str, str]:
-    stufen = config["wpm_stufen"]
-    for schwelle, emoji, farbe in stufen:
+    for schwelle, emoji, farbe in WPM_STUFEN:
         if wpm < schwelle:
             return emoji, farbe
-    # Fallback (letzte Stufe)
-    letzte = stufen[-1]
-    return letzte[1], letzte[2]
+    return WPM_STUFEN[-1][1], WPM_STUFEN[-1][2]
 
 def berechne_wpm() -> int:
     jetzt = time.time()
     grenze = jetzt - ZEITFENSTER_SEK
-
     with _lock:
         while anschlaege and anschlaege[0] < grenze:
             anschlaege.pop(0)
-
         if len(anschlaege) < 2:
             return 0
-
         vergangen = jetzt - anschlaege[0]
         vergangen = max(vergangen, 2.0)
         return round((len(anschlaege) / ZEICHEN_PRO_WORT) / (vergangen / 60))
 
 def analysiere_tippgeschwindigkeit() -> None:
     global beruhigungs_modus
-
     wpm = berechne_wpm()
     emoji, farbe = get_wpm_emoji_und_farbe(wpm)
     lbl_wpm.config(text=f"{wpm} WPM {emoji}", fg=farbe)
-
     if wpm >= RAGE_SCHWELLE and not beruhigungs_modus:
         loese_zen_modus_aus()
-
     root.after(POLL_INTERVAL_MS, analysiere_tippgeschwindigkeit)
 
 # ------------------------------------------------------------
-# 10. Zen Mode popup (with intelligent music control)
+# Zen-Modus
 # ------------------------------------------------------------
 def loese_zen_modus_aus() -> None:
     global beruhigungs_modus, musik_lief_vor_zen, musik_gestartet_durch_zen
     beruhigungs_modus = True
     log.info("Zen Mode activated (WPM >= %d)", RAGE_SCHWELLE)
 
-    # Check if music is currently playing
     if MIXER_VERFUEGBAR:
         musik_lief_vor_zen = pygame.mixer.music.get_busy() or music_paused
         if not musik_lief_vor_zen:
-            # No music before → start a song
             spiele_naechsten_song()
             musik_gestartet_durch_zen = True
             log.info("Zen Mode starts its own song")
         else:
-            # Music already playing → let it continue
             musik_gestartet_durch_zen = False
             log.info("Zen Mode keeps existing music playing")
     else:
         musik_lief_vor_zen = False
         musik_gestartet_durch_zen = False
 
-    # Create Zen popup
     zen = tk.Toplevel(root)
     zen.title("ZEN MODE")
     zen.geometry("600x300")
@@ -361,18 +299,10 @@ def loese_zen_modus_aus() -> None:
     if not MIXER_VERFUEGBAR:
         text += "\n\n(Note: Music is disabled)"
     
-    tk.Label(
-        zen,
-        text=text,
-        font=("Helvetica", 20, "bold"),
-        fg="white",
-        bg="#2c3e50",
-        pady=50,
-    ).pack(expand=True)
+    tk.Label(zen, text=text, font=("Helvetica", 20, "bold"), fg="white", bg="#2c3e50", pady=50).pack(expand=True)
 
     def schliesse_zen() -> None:
         global beruhigungs_modus, musik_gestartet_durch_zen, musik_lief_vor_zen
-        # Stop music only if it was started by Zen Mode AND no music was playing before
         if MIXER_VERFUEGBAR and musik_gestartet_durch_zen and not musik_lief_vor_zen:
             try:
                 pygame.mixer.music.stop()
@@ -382,7 +312,6 @@ def loese_zen_modus_aus() -> None:
 
         with _lock:
             anschlaege.clear()
-
         beruhigungs_modus = False
         log.info("Zen Mode ended.")
         zen.destroy()
@@ -390,7 +319,7 @@ def loese_zen_modus_aus() -> None:
     zen.after(ZEN_DAUER_MS, schliesse_zen)
 
 # ------------------------------------------------------------
-# 11. Window dragging
+# Fenster verschieben
 # ------------------------------------------------------------
 _drag_x: int = 0
 _drag_y: int = 0
@@ -403,20 +332,15 @@ def do_move(event: tk.Event) -> None:
     x = root.winfo_x() + (event.x - _drag_x)
     y = root.winfo_y() + (event.y - _drag_y)
     root.geometry(f"+{x}+{y}")
-    # Save new position to config
-    config["window_x"] = x
-    config["window_y"] = y
-    save_config()
 
 # ------------------------------------------------------------
-# 12. Toggle music controls (hidden by default)
+# Toggle Musiksteuerung (per Doppelklick)
 # ------------------------------------------------------------
 def toggle_music_controls(event=None):
     if zeile2.winfo_ismapped():
         zeile2.pack_forget()
         zeile3.pack_forget()
     else:
-        # Before showing, update volume scale to current mixer volume
         if MIXER_VERFUEGBAR:
             current_vol = pygame.mixer.music.get_volume()
             volume_var.set(int(current_vol * 100))
@@ -424,7 +348,7 @@ def toggle_music_controls(event=None):
         zeile3.pack(side="top", fill="x", pady=(0, 5))
 
 # ------------------------------------------------------------
-# 13. Volume control callback
+# Lautstärkeregelung
 # ------------------------------------------------------------
 def volume_changed(val):
     if MIXER_VERFUEGBAR:
@@ -434,297 +358,10 @@ def volume_changed(val):
             pass
 
 # ------------------------------------------------------------
-# 14. Settings window
-# ------------------------------------------------------------
-def open_settings():
-    # Benutzerdefiniertes Fenster mit abgerundeten Ecken
-    settings = tk.Toplevel(root)
-    settings.title("")
-    settings.geometry("650x550")
-    settings.resizable(False, False)
-    settings.transient(root)
-    settings.grab_set()
-    settings.overrideredirect(True)  # Eigene Fensterdekoration
-
-    # Canvas für abgerundeten Hintergrund
-    canvas = tk.Canvas(settings, width=650, height=550, bg="#2b2b2b", highlightthickness=0)
-    canvas.pack()
-
-    # Abgerundetes Rechteck zeichnen
-    corner_radius = 20
-    canvas.create_round_rect(5, 5, 645, 545, r=corner_radius, fill="#3c3f41", outline="#4a4a4a", width=2)
-
-    # Eigene Titelleiste
-    title_bar = tk.Frame(settings, bg="#2b2b2b", height=30)
-    title_bar.place(x=10, y=10, width=630)
-
-    title_label = tk.Label(title_bar, text="⚙️ Einstellungen", font=("Segoe UI", 12, "bold"),
-                           fg="#ffffff", bg="#2b2b2b")
-    title_label.pack(side="left", padx=10)
-
-    # Schließen-Button
-    close_btn = tk.Button(title_bar, text="✕", font=("Segoe UI", 12, "bold"),
-                          fg="#ffffff", bg="#2b2b2b", bd=0, activebackground="#c42b1c",
-                          activeforeground="#ffffff", cursor="hand2",
-                          command=settings.destroy)
-    close_btn.pack(side="right", padx=10)
-
-    # Hauptframe (auf dem Canvas)
-    main_frame = tk.Frame(settings, bg="#3c3f41")
-    main_frame.place(x=15, y=50, width=620, height=485)
-
-    # Notebook mit größerer Schrift
-    style = ttk.Style()
-    style.theme_use("clam")
-    style.configure("TNotebook.Tab", font=("Segoe UI", 10), padding=[10, 5])
-    style.configure("TNotebook", background="#3c3f41")
-    style.map("TNotebook.Tab", background=[("selected", "#4c5052")])
-
-    notebook = ttk.Notebook(main_frame)
-    notebook.pack(fill="both", expand=True, padx=10, pady=10)
-
-    # Tab 1: WPM Stufen
-    frame_stufen = ttk.Frame(notebook)
-    notebook.add(frame_stufen, text="WPM Stufen")
-
-    # Treeview mit größerer Schrift
-    tree_frame = tk.Frame(frame_stufen, bg="#3c3f41")
-    tree_frame.pack(fill="both", expand=True, padx=5, pady=5)
-
-    columns = ("Schwellwert", "Emoji", "Farbe")
-    tree = ttk.Treeview(tree_frame, columns=columns, show="headings", height=8)
-    tree.heading("Schwellwert", text="WPM <")
-    tree.heading("Emoji", text="Emoji")
-    tree.heading("Farbe", text="Farbe (Hex)")
-    tree.column("Schwellwert", width=120, anchor="center")
-    tree.column("Emoji", width=100, anchor="center")
-    tree.column("Farbe", width=180, anchor="center")
-
-    # Schrift im Tree vergrößern
-    style.configure("Treeview", font=("Segoe UI", 10), rowheight=25)
-    style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"))
-
-    scrollbar = ttk.Scrollbar(tree_frame, orient="vertical", command=tree.yview)
-    tree.configure(yscrollcommand=scrollbar.set)
-    tree.grid(row=0, column=0, sticky="nsew")
-    scrollbar.grid(row=0, column=1, sticky="ns")
-    tree_frame.grid_rowconfigure(0, weight=1)
-    tree_frame.grid_columnconfigure(0, weight=1)
-
-    # Buttons für Stufen (mit größerer Schrift)
-    btn_frame = tk.Frame(frame_stufen, bg="#3c3f41")
-    btn_frame.pack(pady=10)
-
-    def load_stufen_into_tree():
-        tree.delete(*tree.get_children())
-        for stufe in config["wpm_stufen"]:
-            tree.insert("", "end", values=stufe)
-
-    load_stufen_into_tree()
-
-    def add_stufe():
-        # Dialog-Fenster ebenfalls hübscher
-        new_window = tk.Toplevel(settings)
-        new_window.title("Neue Stufe")
-        new_window.geometry("350x250")
-        new_window.transient(settings)
-        new_window.grab_set()
-        new_window.configure(bg="#3c3f41")
-
-        # Abgerundete Ecken für Dialog
-        new_window.overrideredirect(True)
-        dialog_canvas = tk.Canvas(new_window, width=350, height=250, bg="#2b2b2b", highlightthickness=0)
-        dialog_canvas.pack()
-        dialog_canvas.create_round_rect(5, 5, 345, 245, r=15, fill="#3c3f41", outline="#4a4a4a", width=2)
-
-        # Inhalt
-        content = tk.Frame(new_window, bg="#3c3f41")
-        content.place(x=10, y=10, width=330, height=230)
-
-        tk.Label(content, text="Schwellwert (WPM <):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_schwelle = tk.Entry(content, font=("Segoe UI", 10))
-        entry_schwelle.pack()
-
-        tk.Label(content, text="Emoji:", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_emoji = tk.Entry(content, font=("Segoe UI", 10))
-        entry_emoji.pack()
-
-        tk.Label(content, text="Farbe (Hex oder Name):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_farbe = tk.Entry(content, font=("Segoe UI", 10))
-        entry_farbe.pack()
-
-        def pick_color():
-            color = colorchooser.askcolor(title="Farbe wählen")[1]
-            if color:
-                entry_farbe.delete(0, tk.END)
-                entry_farbe.insert(0, color)
-
-        tk.Button(content, text="Farbe auswählen", font=("Segoe UI", 10), command=pick_color,
-                  bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(pady=5)
-
-        def save_new():
-            try:
-                schwelle = int(entry_schwelle.get())
-                emoji = entry_emoji.get()
-                farbe = entry_farbe.get()
-                config["wpm_stufen"].append([schwelle, emoji, farbe])
-                config["wpm_stufen"].sort(key=lambda x: x[0])
-                save_config()
-                load_stufen_into_tree()
-                new_window.destroy()
-            except ValueError:
-                messagebox.showerror("Fehler", "Schwellwert muss eine Zahl sein")
-
-        tk.Button(content, text="Speichern", font=("Segoe UI", 10, "bold"),
-                  bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
-                  command=save_new).pack(pady=10)
-
-    def edit_stufe():
-        selected = tree.selection()
-        if not selected:
-            return
-        item = tree.item(selected[0])
-        values = item["values"]
-        if not values:
-            return
-
-        new_window = tk.Toplevel(settings)
-        new_window.title("Stufe bearbeiten")
-        new_window.geometry("350x250")
-        new_window.transient(settings)
-        new_window.grab_set()
-        new_window.configure(bg="#3c3f41")
-
-        new_window.overrideredirect(True)
-        dialog_canvas = tk.Canvas(new_window, width=350, height=250, bg="#2b2b2b", highlightthickness=0)
-        dialog_canvas.pack()
-        dialog_canvas.create_round_rect(5, 5, 345, 245, r=15, fill="#3c3f41", outline="#4a4a4a", width=2)
-
-        content = tk.Frame(new_window, bg="#3c3f41")
-        content.place(x=10, y=10, width=330, height=230)
-
-        tk.Label(content, text="Schwellwert (WPM <):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_schwelle = tk.Entry(content, font=("Segoe UI", 10))
-        entry_schwelle.insert(0, values[0])
-        entry_schwelle.pack()
-
-        tk.Label(content, text="Emoji:", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_emoji = tk.Entry(content, font=("Segoe UI", 10))
-        entry_emoji.insert(0, values[1])
-        entry_emoji.pack()
-
-        tk.Label(content, text="Farbe (Hex oder Name):", font=("Segoe UI", 10), fg="white", bg="#3c3f41").pack(pady=5)
-        entry_farbe = tk.Entry(content, font=("Segoe UI", 10))
-        entry_farbe.insert(0, values[2])
-        entry_farbe.pack()
-
-        def pick_color():
-            color = colorchooser.askcolor(title="Farbe wählen")[1]
-            if color:
-                entry_farbe.delete(0, tk.END)
-                entry_farbe.insert(0, color)
-
-        tk.Button(content, text="Farbe auswählen", font=("Segoe UI", 10), command=pick_color,
-                  bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(pady=5)
-
-        def save_edit():
-            try:
-                schwelle = int(entry_schwelle.get())
-                emoji = entry_emoji.get()
-                farbe = entry_farbe.get()
-                for i, st in enumerate(config["wpm_stufen"]):
-                    if st[0] == values[0] and st[1] == values[1] and st[2] == values[2]:
-                        config["wpm_stufen"][i] = [schwelle, emoji, farbe]
-                        break
-                config["wpm_stufen"].sort(key=lambda x: x[0])
-                save_config()
-                load_stufen_into_tree()
-                new_window.destroy()
-            except ValueError:
-                messagebox.showerror("Fehler", "Schwellwert muss eine Zahl sein")
-
-        tk.Button(content, text="Speichern", font=("Segoe UI", 10, "bold"),
-                  bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
-                  command=save_edit).pack(pady=10)
-
-    def delete_stufe():
-        selected = tree.selection()
-        if not selected:
-            return
-        item = tree.item(selected[0])
-        values = item["values"]
-        if not values:
-            return
-        if messagebox.askyesno("Löschen", "Wirklich löschen?"):
-            for i, st in enumerate(config["wpm_stufen"]):
-                if st[0] == values[0] and st[1] == values[1] and st[2] == values[2]:
-                    del config["wpm_stufen"][i]
-                    break
-            save_config()
-            load_stufen_into_tree()
-
-    tk.Button(btn_frame, text="➕ Hinzufügen", font=("Segoe UI", 10), command=add_stufe,
-              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="✏️ Bearbeiten", font=("Segoe UI", 10), command=edit_stufe,
-              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
-    tk.Button(btn_frame, text="🗑️ Löschen", font=("Segoe UI", 10), command=delete_stufe,
-              bg="#4c5052", fg="white", bd=0, padx=10, pady=2).pack(side="left", padx=5)
-
-    # Tab 2: Overlay
-    frame_overlay = ttk.Frame(notebook)
-    notebook.add(frame_overlay, text="Overlay")
-
-    overlay_content = tk.Frame(frame_overlay, bg="#3c3f41")
-    overlay_content.pack(fill="both", expand=True, padx=20, pady=20)
-
-    tk.Label(overlay_content, text="Schriftgröße WPM:", font=("Segoe UI", 11), fg="white", bg="#3c3f41").grid(row=0, column=0, sticky="w", pady=10)
-    font_var = tk.IntVar(value=config["font_size"])
-    font_spin = ttk.Spinbox(overlay_content, from_=10, to=100, textvariable=font_var, width=10, font=("Segoe UI", 10))
-    font_spin.grid(row=0, column=1, padx=10, pady=10)
-
-    preview = tk.Label(overlay_content, text="123 WPM 🐢", font=("Helvetica", config["font_size"]), fg="#4CAF50", bg="#3c3f41")
-    preview.grid(row=1, column=0, columnspan=2, pady=10)
-
-    def update_preview(*args):
-        preview.config(font=("Helvetica", font_var.get()))
-    font_var.trace_add("write", update_preview)
-
-    tk.Label(overlay_content, text=f"Position: X={config['window_x']}, Y={config['window_y']} (wird beim Verschieben gespeichert)",
-             font=("Segoe UI", 10), fg="#cccccc", bg="#3c3f41").grid(row=2, column=0, columnspan=2, pady=10)
-
-    def save_overlay_settings():
-        config["font_size"] = font_var.get()
-        save_config()
-        lbl_wpm.config(font=("Helvetica", config["font_size"]))
-        messagebox.showinfo("Info", "Einstellungen gespeichert")
-
-    tk.Button(overlay_content, text="Speichern", font=("Segoe UI", 11, "bold"),
-              bg="#4CAF50", fg="white", bd=0, padx=20, pady=5,
-              command=save_overlay_settings).grid(row=3, column=0, columnspan=2, pady=10)
-
-    # Tab 3: Info
-    frame_info = ttk.Frame(notebook)
-    notebook.add(frame_info, text="Info")
-
-    info_content = tk.Frame(frame_info, bg="#3c3f41")
-    info_content.pack(fill="both", expand=True, padx=20, pady=20)
-
-    tk.Label(info_content, text="WPM Overlay mit Rage Detection", font=("Segoe UI", 14, "bold"),
-             fg="white", bg="#3c3f41").pack(pady=10)
-    tk.Label(info_content, text="Version 2.0", font=("Segoe UI", 11), fg="#cccccc", bg="#3c3f41").pack()
-    tk.Label(info_content, text="Einstellungen werden automatisch gespeichert.", font=("Segoe UI", 10),
-             fg="#cccccc", bg="#3c3f41").pack(pady=20)
-
-    # Schließen-Button unten (optional)
-    tk.Button(settings, text="Schließen", font=("Segoe UI", 11, "bold"),
-              bg="#4c5052", fg="white", bd=0, padx=30, pady=5,
-              command=settings.destroy).place(x=275, y=505, width=100)
-# ------------------------------------------------------------
-# 15. Clean exit
+# Beenden
 # ------------------------------------------------------------
 def programm_beenden() -> None:
     log.info("Shutting down.")
-    save_config()
     if MIXER_VERFUEGBAR:
         try:
             pygame.mixer.music.stop()
@@ -734,217 +371,98 @@ def programm_beenden() -> None:
     root.destroy()
 
 # ------------------------------------------------------------
-# 16. Main program with error handling
+# Hauptprogramm
 # ------------------------------------------------------------
 if __name__ == "__main__":
-    try:
-        # Load playlist (if any)
-        lade_playlist()
+    lade_playlist()
 
-        # Start keylogger thread
-        keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
-        keylogger_thread.start()
+    keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
+    keylogger_thread.start()
 
-        # Create main window
-        root = tk.Tk()
-        root.overrideredirect(True)
-        root.attributes("-topmost", True)
+    root = tk.Tk()
+    root.overrideredirect(True)
+    root.attributes("-topmost", True)
 
-        TRANSPARENT = "#000001"
-        root.configure(bg=TRANSPARENT)
-        root.wm_attributes("-transparentcolor", TRANSPARENT)
-        root.geometry(f"+{config['window_x']}+{config['window_y']}")
+    TRANSPARENT = "#000001"
+    root.configure(bg=TRANSPARENT)
+    root.wm_attributes("-transparentcolor", TRANSPARENT)
+    root.geometry(f"+{WINDOW_X}+{WINDOW_Y}")
 
-        # If mixer unavailable, disable music buttons and volume
-        btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
-        volume_state = tk.NORMAL if MIXER_VERFUEGBAR else tk.DISABLED
+    btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
+    volume_state = tk.NORMAL if MIXER_VERFUEGBAR else tk.DISABLED
 
-        # Main frame
-        frame = tk.Frame(root, bg=TRANSPARENT)
-        frame.pack()
+    frame = tk.Frame(root, bg=TRANSPARENT)
+    frame.pack()
 
-        # ---- Row 1: WPM display + close button + settings button ----
-        zeile1 = tk.Frame(frame, bg=TRANSPARENT)
-        zeile1.pack(side="top", fill="x")
+    # ---- Zeile 1: WPM-Anzeige + Schließen-Button ----
+    zeile1 = tk.Frame(frame, bg=TRANSPARENT)
+    zeile1.pack(side="top", fill="x")
 
-        lbl_wpm = tk.Label(
-            zeile1,
-            text="0 WPM 🐢",
-            font=("Helvetica", config["font_size"], "bold"),
-            fg="#4CAF50",
-            bg=TRANSPARENT,
-        )
-        lbl_wpm.pack(side="left", padx=10)
+    lbl_wpm = tk.Label(zeile1, text="0 WPM 🐢", font=("Helvetica", FONT_SIZE, "bold"),
+                       fg="#4CAF50", bg=TRANSPARENT)
+    lbl_wpm.pack(side="left", padx=10)
 
-        btn_settings = tk.Button(
-            zeile1,
-            text="⚙️",
-            font=("Arial", 8),
-            fg="gray",
-            bg=TRANSPARENT,
-            bd=0,
-            activebackground=TRANSPARENT,
-            activeforeground="white",
-            cursor="hand2",
-            command=open_settings
-        )
-        btn_settings.pack(side="right", anchor="n", padx=2)
+    btn_close = tk.Button(zeile1, text="✖", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
+                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
+                          cursor="hand2", command=programm_beenden)
+    btn_close.pack(side="right", anchor="n")
 
-        btn_close = tk.Button(
-            zeile1,
-            text="✖",
-            font=("Arial", 8),
-            fg="gray",
-            bg=TRANSPARENT,
-            bd=0,
-            activebackground=TRANSPARENT,
-            activeforeground="white",
-            cursor="hand2",
-            command=programm_beenden,
-        )
-        btn_close.pack(side="right", anchor="n")
+    # ---- Zeile 2: Musik-Buttons (versteckt) ----
+    zeile2 = tk.Frame(frame, bg=TRANSPARENT)
 
-        # ---- Row 2: Music control buttons (hidden by default) ----
-        zeile2 = tk.Frame(frame, bg=TRANSPARENT)
+    btn_prev = tk.Button(zeile2, text="⏮", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
+                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
+                         cursor="hand2", state=btn_state, command=vorheriger_song)
+    btn_prev.pack(side="left", padx=5)
 
-        # Previous button
-        btn_prev = tk.Button(
-            zeile2,
-            text="⏮",
-            font=("Segoe UI", 14),
-            fg="white",
-            bg="#2c3e50",
-            bd=0,
-            padx=10,
-            activebackground="#34495e",
-            activeforeground="white",
-            cursor="hand2",
-            state=btn_state,
-            command=vorheriger_song
-        )
-        btn_prev.pack(side="left", padx=5)
+    btn_play_scan = tk.Button(zeile2, text="🔍 ▶", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
+                               bd=0, padx=10, activebackground="#34495e", activeforeground="white",
+                               cursor="hand2", state=btn_state, command=scan_und_spiele)
+    btn_play_scan.pack(side="left", padx=5)
 
-        # Scan & play button
-        btn_play_scan = tk.Button(
-            zeile2,
-            text="🔍 ▶",
-            font=("Segoe UI", 14),
-            fg="white",
-            bg="#2c3e50",
-            bd=0,
-            padx=10,
-            activebackground="#34495e",
-            activeforeground="white",
-            cursor="hand2",
-            state=btn_state,
-            command=scan_und_spiele
-        )
-        btn_play_scan.pack(side="left", padx=5)
+    btn_next = tk.Button(zeile2, text="⏭", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
+                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
+                         cursor="hand2", state=btn_state, command=spiele_naechsten_song)
+    btn_next.pack(side="left", padx=5)
 
-        # Next button
-        btn_next = tk.Button(
-            zeile2,
-            text="⏭",
-            font=("Segoe UI", 14),
-            fg="white",
-            bg="#2c3e50",
-            bd=0,
-            padx=10,
-            activebackground="#34495e",
-            activeforeground="white",
-            cursor="hand2",
-            state=btn_state,
-            command=spiele_naechsten_song
-        )
-        btn_next.pack(side="left", padx=5)
+    btn_pause = tk.Button(zeile2, text="⏸️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
+                          bd=0, padx=10, activebackground="#34495e", activeforeground="white",
+                          cursor="hand2", state=btn_state, command=toggle_pause)
+    btn_pause.pack(side="left", padx=5)
 
-        # Pause button
-        btn_pause = tk.Button(
-            zeile2,
-            text="⏸️",
-            font=("Segoe UI", 14),
-            fg="white",
-            bg="#2c3e50",
-            bd=0,
-            padx=10,
-            activebackground="#34495e",
-            activeforeground="white",
-            cursor="hand2",
-            state=btn_state,
-            command=toggle_pause
-        )
-        btn_pause.pack(side="left", padx=5)
+    btn_stop = tk.Button(zeile2, text="⏹️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
+                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
+                         cursor="hand2", state=btn_state, command=stop_music)
+    btn_stop.pack(side="left", padx=5)
 
-        # ---- Row 3: Title and volume (hidden by default) ----
-        zeile3 = tk.Frame(frame, bg=TRANSPARENT)
+    # ---- Zeile 3: Titel + Lautstärke (versteckt) ----
+    zeile3 = tk.Frame(frame, bg=TRANSPARENT)
 
-        # Title label
-        lbl_title = tk.Label(
-            zeile3,
-            text="",
-            font=("Arial", 10),
-            fg="white",
-            bg="#2c3e50",
-            padx=5,
-            pady=2
-        )
-        lbl_title.pack(side="left", padx=5)
+    lbl_title = tk.Label(zeile3, text="", font=("Arial", 10), fg="white", bg="#2c3e50",
+                         padx=5, pady=2)
+    lbl_title.pack(side="left", padx=5)
 
-        # Volume slider
-        volume_var = tk.DoubleVar(value=50)  # default 50%
-        volume_scale = tk.Scale(
-            zeile3,
-            from_=0, to=100,
-            orient="horizontal",
-            variable=volume_var,
-            command=volume_changed,
-            length=100,
-            showvalue=0,
-            bg="#2c3e50",
-            fg="white",
-            troughcolor="#34495e",
-            sliderlength=20,
-            state=volume_state
-        )
-        volume_scale.pack(side="left", padx=5)
+    volume_var = tk.DoubleVar(value=50)
+    volume_scale = tk.Scale(zeile3, from_=0, to=100, orient="horizontal",
+                            variable=volume_var, command=volume_changed, length=100,
+                            showvalue=0, bg="#2c3e50", fg="white", troughcolor="#34495e",
+                            sliderlength=20, state=volume_state)
+    volume_scale.pack(side="left", padx=5)
 
-        # Initially hide rows 2 and 3
-        zeile2.pack_forget()
-        zeile3.pack_forget()
+    zeile2.pack_forget()
+    zeile3.pack_forget()
 
-        # Bind double-click on WPM label to toggle music controls
-        lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
+    lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
 
-        # Make all visible widgets draggable (except volume scale – it has its own bindings)
-        for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, lbl_wpm, zeile1, frame):
-            widget.bind("<ButtonPress-1>", start_move)
-            widget.bind("<B1-Motion>", do_move)
+    for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, btn_stop, lbl_wpm, zeile1, frame):
+        widget.bind("<ButtonPress-1>", start_move)
+        widget.bind("<B1-Motion>", do_move)
 
-        # Start WPM monitoring
-        analysiere_tippgeschwindigkeit()
+    analysiere_tippgeschwindigkeit()
 
-        # Info popup if music disabled
-        if not MIXER_VERFUEGBAR:
-            log.info("Note: Music controls disabled (pygame.mixer not available)")
-            root.after(1000, lambda: messagebox.showinfo(
-                "Music disabled",
-                "pygame.mixer is not available.\n"
-                "Music controls have been disabled.\n"
-                "The WPM overlay will still work."
-            ))
+    if not MIXER_VERFUEGBAR:
+        log.info("Note: Music controls disabled (pygame.mixer not available)")
+        root.after(1000, lambda: messagebox.showinfo("Music disabled",
+            "pygame.mixer is not available.\nMusic controls have been disabled.\nThe WPM overlay will still work."))
 
-        # Main loop
-        root.mainloop()
-    except Exception as e:
-        # Critical error – write to file and show message box if possible
-        error_msg = f"Fatal error: {e}\n{traceback.format_exc()}"
-        with open("crash.log", "w", encoding="utf-8") as f:
-            f.write(error_msg)
-        # Try to show a message box (might fail if tk not initialized)
-        try:
-            root = tk.Tk()
-            root.withdraw()
-            messagebox.showerror("Crash", f"Das Programm ist abgestürzt.\nFehler: {e}\nDetails in crash.log")
-        except:
-            pass
-        sys.exit(1)
+    root.mainloop()
