@@ -1,12 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# ===== GANZ AM ANFANG: KONSOLENFENSTER SOFORT VERSTECKEN =====
+# ===== GANZ AM ANFANG: KONSOLE SOFORT FREIGEBEN =====
 import ctypes
-import sys
-if sys.platform == "win32":
-    # Versteckt das Konsolenfenster, falls es existiert (auch bei .pyw sicherheitshalber)
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
+kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel32.FreeConsole()  # Schließt die Konsole, falls sie existiert
 
 # ===== Globale Fehlerbehandlung – fängt alles ab =====
 import traceback
@@ -31,6 +29,7 @@ import threading
 import logging
 import os
 import subprocess
+import sys
 from pynput import keyboard
 import pygame
 
