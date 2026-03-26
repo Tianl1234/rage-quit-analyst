@@ -5,8 +5,6 @@ import os
 import sys
 
 # ===== ABSOLUTER SCHUTZ VOR WINERROR 6 =====
-# Wir leiten sofort ALLE Konsolenausgaben in ein "Schwarzes Loch" um.
-# Das verhindert, dass print()-Befehle (wie die von Pygame) das Programm zum Absturz bringen.
 class DummyWriter:
     def write(self, *args, **kwargs): pass
     def flush(self, *args, **kwargs): pass
@@ -15,10 +13,8 @@ class DummyWriter:
 sys.stdout = DummyWriter()
 sys.stderr = DummyWriter()
 
-# Unterdrückt die Pygame-Willkommensnachricht VOR DEM IMPORT!
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
-# Konsole verstecken (falls sie durch .py gestartet wurde)
 if os.name == 'nt':
     import ctypes
     try:
@@ -27,7 +23,7 @@ if os.name == 'nt':
     except Exception:
         pass
 
-# ===== Globale Fehlerbehandlung – fängt alles ab =====
+# ===== Globale Fehlerbehandlung =====
 import traceback
 import tkinter as tk
 from tkinter import messagebox
@@ -49,16 +45,12 @@ import time
 import threading
 import logging
 import subprocess
-from pynput import keyboard
-import pygame
 
 # ------------------------------------------------------------
-# Python-Version prüfen (pynput ≥ 1.7.8 für 3.13)
+# Python-Version & pynput Kompatibilität prüfen
 # ------------------------------------------------------------
 PY_VERSION = sys.version_info[:2]
-IS_PY313 = PY_VERSION >= (3, 13)
-
-if IS_PY313:
+if PY_VERSION >= (3, 13):
     try:
         import pynput
         if pynput.__version__ < "1.7.8":
@@ -67,17 +59,22 @@ if IS_PY313:
         pass
 
 # ------------------------------------------------------------
-# Fehlende Pakete automatisch installieren
+# Fehlende Pakete automatisch installieren (JETZT MIT TRAY-TOOLS)
 # ------------------------------------------------------------
-REQUIRED_PACKAGES = ["pynput", "pygame"]
+REQUIRED_PACKAGES = [
+    ("pynput", "pynput"),
+    ("pygame", "pygame"),
+    ("pystray", "pystray"),
+    ("Pillow", "PIL")
+]
 
-for pkg in REQUIRED_PACKAGES:
+for pip_name, import_name in REQUIRED_PACKAGES:
     try:
-        __import__(pkg)
+        __import__(import_name)
     except ImportError:
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", pkg],
+                [sys.executable, "-m", "pip", "install", pip_name],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL
             )
@@ -86,9 +83,15 @@ for pkg in REQUIRED_PACKAGES:
             root.withdraw()
             messagebox.showerror(
                 "Installation Error",
-                f"Package '{pkg}' could not be installed.\n\nPlease run this command manually:\n  {sys.executable} -m pip install {pkg}"
+                f"Package '{pip_name}' konnte nicht installiert werden.\n\nFühre manuell aus:\n  {sys.executable} -m pip install {pip_name}"
             )
             sys.exit(1)
+
+# Spätere Imports der nun sicheren Pakete
+from pynput import keyboard
+import pygame
+import pystray
+from PIL import Image, ImageDraw
 
 # ------------------------------------------------------------
 # Mixer-Verfügbarkeit prüfen
@@ -97,27 +100,24 @@ MIXER_VERFUEGBAR = False
 try:
     pygame.mixer.init()
     MIXER_VERFUEGBAR = True
-except Exception as e:
+except Exception:
     pass
 
-# ------------------------------------------------------------
-# Logging (wird durch DummyWriter unsichtbar, verhindert aber Fehler)
-# ------------------------------------------------------------
 logging.basicConfig(level=logging.INFO, format="%(levelname)s | %(message)s")
 log = logging.getLogger(__name__)
 
 # ------------------------------------------------------------
 # Feste Konfiguration
 # ------------------------------------------------------------
-ZEITFENSTER_SEK: float = 5.0       # rolling window for WPM (seconds)
-RAGE_SCHWELLE: int     = 100       # WPM that triggers Zen Mode
-ZEN_DAUER_MS: int      = 5_000     # how long Zen popup stays (milliseconds)
-ZEICHEN_PRO_WORT: int  = 5         # average characters per word
-POLL_INTERVAL_MS: int  = 10        # how often to update WPM (ms)
-SONG_CHECK_MS: int     = 1_000     # how often to check if song ended (ms)
-FONT_SIZE: int         = 36        # Schriftgröße der WPM-Anzeige
-WINDOW_X: int          = 1500      # Startposition X
-WINDOW_Y: int          = 100       # Startposition Y
+ZEITFENSTER_SEK: float = 5.0       
+RAGE_SCHWELLE: int     = 100       
+ZEN_DAUER_MS: int      = 5_000     
+ZEICHEN_PRO_WORT: int  = 5         
+POLL_INTERVAL_MS: int  = 10        
+SONG_CHECK_MS: int     = 1_000     
+FONT_SIZE: int         = 36        
+WINDOW_X: int          = 1500      
+WINDOW_Y: int          = 100       
 
 WPM_STUFEN = [
     (20,  "🐢", "#4CAF50"),
@@ -129,7 +129,7 @@ WPM_STUFEN = [
 ]
 
 # ------------------------------------------------------------
-# Globaler Zustand (thread-safe)
+# Globaler Zustand
 # ------------------------------------------------------------
 _lock             = threading.Lock()
 anschlaege: list[float] = []
@@ -143,6 +143,10 @@ watcher_id = None
 
 musik_lief_vor_zen: bool = False
 musik_gestartet_durch_zen: bool = False
+
+# Zustand für das Tray-Icon
+is_hidden: bool = False
+tray_icon = None
 
 # ------------------------------------------------------------
 # Keylogger
@@ -206,8 +210,6 @@ def scan_und_spiele() -> None:
     if playlist and MIXER_VERFUEGBAR:
         aktueller_song_index = 0
         spiele_song(0)
-    elif not MIXER_VERFUEGBAR and playlist:
-        messagebox.showinfo("Info", "Music functions are disabled because pygame.mixer is not available.")
 
 def toggle_pause():
     global music_paused
@@ -278,9 +280,6 @@ def analysiere_tippgeschwindigkeit() -> None:
         loese_zen_modus_aus()
     root.after(POLL_INTERVAL_MS, analysiere_tippgeschwindigkeit)
 
-# ------------------------------------------------------------
-# Zen-Modus
-# ------------------------------------------------------------
 def loese_zen_modus_aus() -> None:
     global beruhigungs_modus, musik_lief_vor_zen, musik_gestartet_durch_zen
     beruhigungs_modus = True
@@ -304,28 +303,53 @@ def loese_zen_modus_aus() -> None:
     zen.overrideredirect(True)
 
     text = "⚠️ RAGE QUIT DANGER ⚠️\n\nHands off the keyboard!\nTake a deep breath... 🧘"
-    if not MIXER_VERFUEGBAR:
-        text += "\n\n(Note: Music is disabled)"
-    
     tk.Label(zen, text=text, font=("Helvetica", 20, "bold"), fg="white", bg="#2c3e50", pady=50).pack(expand=True)
 
     def schliesse_zen() -> None:
         global beruhigungs_modus, musik_gestartet_durch_zen, musik_lief_vor_zen
         if MIXER_VERFUEGBAR and musik_gestartet_durch_zen and not musik_lief_vor_zen:
-            try:
-                stop_music()
-            except Exception:
-                pass
-
-        with _lock:
-            anschlaege.clear()
+            try: stop_music()
+            except Exception: pass
+        with _lock: anschlaege.clear()
         beruhigungs_modus = False
         zen.destroy()
 
     zen.after(ZEN_DAUER_MS, schliesse_zen)
 
 # ------------------------------------------------------------
-# Fenster verschieben
+# System Tray Icon (NEU)
+# ------------------------------------------------------------
+def setup_tray_icon():
+    global tray_icon
+
+    # Dynamisches Icon generieren (Grüner Kreis)
+    image = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse((8, 8, 56, 56), fill="#4CAF50", outline="white", width=4)
+
+    def on_toggle_visibility(icon, item):
+        global is_hidden
+        is_hidden = not is_hidden
+        # Aktionen müssen an den Haupt-Thread von Tkinter übergeben werden
+        if is_hidden:
+            root.after(0, root.withdraw)
+        else:
+            root.after(0, root.deiconify)
+
+    def on_quit(icon, item):
+        icon.stop()
+        root.after(0, programm_beenden)
+
+    menu = pystray.Menu(
+        pystray.MenuItem("Zeigen / Verstecken", on_toggle_visibility, default=True),
+        pystray.MenuItem("Beenden", on_quit)
+    )
+
+    tray_icon = pystray.Icon("WPM_Tracker", image, "WPM Tracker", menu)
+    tray_icon.run()
+
+# ------------------------------------------------------------
+# UI Helfer
 # ------------------------------------------------------------
 _drag_x: int = 0
 _drag_y: int = 0
@@ -336,18 +360,11 @@ def start_move(event: tk.Event) -> None:
 
 def do_move(event: tk.Event) -> None:
     global _drag_x, _drag_y
-    deltax = event.x_root - _drag_x
-    deltay = event.y_root - _drag_y
-    
-    x = root.winfo_x() + deltax
-    y = root.winfo_y() + deltay
+    x = root.winfo_x() + (event.x_root - _drag_x)
+    y = root.winfo_y() + (event.y_root - _drag_y)
     root.geometry(f"+{x}+{y}")
-    
     _drag_x, _drag_y = event.x_root, event.y_root
 
-# ------------------------------------------------------------
-# Toggle Musiksteuerung (per Doppelklick)
-# ------------------------------------------------------------
 def toggle_music_controls(event=None):
     if zeile2.winfo_ismapped():
         zeile2.pack_forget()
@@ -359,26 +376,24 @@ def toggle_music_controls(event=None):
         zeile2.pack(side="top", fill="x", pady=(0, 2))
         zeile3.pack(side="top", fill="x", pady=(0, 5))
 
-# ------------------------------------------------------------
-# Lautstärkeregelung
-# ------------------------------------------------------------
 def volume_changed(val):
     if MIXER_VERFUEGBAR:
-        try:
-            pygame.mixer.music.set_volume(float(val) / 100.0)
-        except:
-            pass
+        try: pygame.mixer.music.set_volume(float(val) / 100.0)
+        except: pass
 
-# ------------------------------------------------------------
-# Beenden
-# ------------------------------------------------------------
 def programm_beenden() -> None:
+    global tray_icon
+    # Tray Icon sauber entfernen
+    if tray_icon is not None:
+        try: tray_icon.stop()
+        except: pass
+
     if MIXER_VERFUEGBAR:
         try:
             pygame.mixer.music.stop()
             pygame.mixer.quit()
-        except:
-            pass
+        except: pass
+        
     root.destroy()
     sys.exit(0)
 
@@ -391,20 +406,21 @@ if __name__ == "__main__":
     keylogger_thread = threading.Thread(target=starte_keylogger, daemon=True)
     keylogger_thread.start()
 
+    # Starte das Tray-Icon in einem eigenen Thread
+    tray_thread = threading.Thread(target=setup_tray_icon, daemon=True)
+    tray_thread.start()
+
     root = tk.Tk()
     root.overrideredirect(True)
     root.attributes("-topmost", True)
 
     TRANSPARENT = "#000001"
     root.configure(bg=TRANSPARENT)
-    
     if os.name == 'nt':
         root.wm_attributes("-transparentcolor", TRANSPARENT)
     else:
-        try:
-            root.wm_attributes("-transparent", True)
-        except Exception:
-            pass
+        try: root.wm_attributes("-transparent", True)
+        except Exception: pass
             
     root.geometry(f"+{WINDOW_X}+{WINDOW_Y}")
 
@@ -414,59 +430,35 @@ if __name__ == "__main__":
     frame = tk.Frame(root, bg=TRANSPARENT)
     frame.pack()
 
-    # ---- Zeile 1: WPM-Anzeige + Schließen-Button ----
+    # Zeile 1
     zeile1 = tk.Frame(frame, bg=TRANSPARENT)
     zeile1.pack(side="top", fill="x")
 
-    lbl_wpm = tk.Label(zeile1, text="0 WPM 🐢", font=("Helvetica", FONT_SIZE, "bold"),
-                       fg="#4CAF50", bg=TRANSPARENT)
+    lbl_wpm = tk.Label(zeile1, text="0 WPM 🐢", font=("Helvetica", FONT_SIZE, "bold"), fg="#4CAF50", bg=TRANSPARENT)
     lbl_wpm.pack(side="left", padx=10)
 
-    btn_close = tk.Button(zeile1, text="✖", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
-                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
-                          cursor="hand2", command=programm_beenden)
+    btn_close = tk.Button(zeile1, text="✖", font=("Arial", 8), fg="gray", bg=TRANSPARENT, bd=0, activebackground=TRANSPARENT, activeforeground="white", cursor="hand2", command=programm_beenden)
     btn_close.pack(side="right", anchor="n")
 
-    # ---- Zeile 2: Musik-Buttons (versteckt) ----
+    # Zeile 2
     zeile2 = tk.Frame(frame, bg=TRANSPARENT)
-
-    btn_prev = tk.Button(zeile2, text="⏮", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=vorheriger_song)
+    btn_prev = tk.Button(zeile2, text="⏮", font=("Segoe UI", 14), fg="white", bg="#2c3e50", bd=0, padx=10, activebackground="#34495e", activeforeground="white", cursor="hand2", state=btn_state, command=vorheriger_song)
     btn_prev.pack(side="left", padx=5)
-
-    btn_play_scan = tk.Button(zeile2, text="🔍 ▶", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                               bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                               cursor="hand2", state=btn_state, command=scan_und_spiele)
+    btn_play_scan = tk.Button(zeile2, text="🔍 ▶", font=("Segoe UI", 14), fg="white", bg="#2c3e50", bd=0, padx=10, activebackground="#34495e", activeforeground="white", cursor="hand2", state=btn_state, command=scan_und_spiele)
     btn_play_scan.pack(side="left", padx=5)
-
-    btn_next = tk.Button(zeile2, text="⏭", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=spiele_naechsten_song)
+    btn_next = tk.Button(zeile2, text="⏭", font=("Segoe UI", 14), fg="white", bg="#2c3e50", bd=0, padx=10, activebackground="#34495e", activeforeground="white", cursor="hand2", state=btn_state, command=spiele_naechsten_song)
     btn_next.pack(side="left", padx=5)
-
-    btn_pause = tk.Button(zeile2, text="⏸️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                          bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                          cursor="hand2", state=btn_state, command=toggle_pause)
+    btn_pause = tk.Button(zeile2, text="⏸️", font=("Segoe UI", 14), fg="white", bg="#2c3e50", bd=0, padx=10, activebackground="#34495e", activeforeground="white", cursor="hand2", state=btn_state, command=toggle_pause)
     btn_pause.pack(side="left", padx=5)
-
-    btn_stop = tk.Button(zeile2, text="⏹️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=stop_music)
+    btn_stop = tk.Button(zeile2, text="⏹️", font=("Segoe UI", 14), fg="white", bg="#2c3e50", bd=0, padx=10, activebackground="#34495e", activeforeground="white", cursor="hand2", state=btn_state, command=stop_music)
     btn_stop.pack(side="left", padx=5)
 
-    # ---- Zeile 3: Titel + Lautstärke (versteckt) ----
+    # Zeile 3
     zeile3 = tk.Frame(frame, bg=TRANSPARENT)
-
-    lbl_title = tk.Label(zeile3, text="", font=("Arial", 10), fg="white", bg="#2c3e50",
-                         padx=5, pady=2)
+    lbl_title = tk.Label(zeile3, text="", font=("Arial", 10), fg="white", bg="#2c3e50", padx=5, pady=2)
     lbl_title.pack(side="left", padx=5)
-
     volume_var = tk.DoubleVar(value=50)
-    volume_scale = tk.Scale(zeile3, from_=0, to=100, orient="horizontal",
-                            variable=volume_var, command=volume_changed, length=100,
-                            showvalue=0, bg="#2c3e50", fg="white", troughcolor="#34495e",
-                            sliderlength=20, state=volume_state)
+    volume_scale = tk.Scale(zeile3, from_=0, to=100, orient="horizontal", variable=volume_var, command=volume_changed, length=100, showvalue=0, bg="#2c3e50", fg="white", troughcolor="#34495e", sliderlength=20, state=volume_state)
     volume_scale.pack(side="left", padx=5)
 
     zeile2.pack_forget()
