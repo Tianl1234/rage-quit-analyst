@@ -5,14 +5,22 @@ import os
 import sys
 
 # ===== GANZ AM ANFANG: KONSOLE SOFORT FREIGEBEN =====
-# Schutz: Nur unter Windows ausführen, sonst stürzt das Skript z.B. auf einem Mac ab
+# Schutz: Nur unter Windows ausführen
 if os.name == 'nt':
     import ctypes
     try:
         kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-        kernel32.FreeConsole()  # Schließt die Konsole, falls sie existiert
+        kernel32.FreeConsole()
     except Exception:
         pass
+
+# ===== FIX FÜR DEN WINERROR 6 IN .PYW DATEIEN =====
+# 1. Leitet alle print()-Ausgaben ins Nichts um, damit sie nicht crashen
+sys.stdout = open(os.devnull, 'w')
+sys.stderr = open(os.devnull, 'w')
+
+# 2. Unterdrückt die Begrüßungsnachricht von Pygame VOR dem Import
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 
 # ===== Globale Fehlerbehandlung – fängt alles ab =====
 import traceback
