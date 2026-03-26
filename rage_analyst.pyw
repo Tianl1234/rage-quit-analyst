@@ -1,10 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+import os
+import sys
+
 # ===== GANZ AM ANFANG: KONSOLE SOFORT FREIGEBEN =====
-import ctypes
-kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
-kernel32.FreeConsole()  # Schließt die Konsole, falls sie existiert
+# Schutz: Nur unter Windows ausführen, sonst stürzt das Skript z.B. auf einem Mac ab
+if os.name == 'nt':
+    import ctypes
+    try:
+        kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        kernel32.FreeConsole()  # Schließt die Konsole, falls sie existiert
+    except Exception:
+        pass
 
 # ===== Globale Fehlerbehandlung – fängt alles ab =====
 import traceback
@@ -27,9 +35,7 @@ sys.excepthook = show_error
 import time
 import threading
 import logging
-import os
 import subprocess
-import sys
 from pynput import keyboard
 import pygame
 
@@ -88,7 +94,7 @@ try:
     print("✅ pygame.mixer available – music supported")
 except Exception as e:
     print(f"⚠️  pygame.mixer not available: {e}")
-    print("   Overlay will run without music functions.")
+    print("    Overlay will run without music functions.")
 
 # ------------------------------------------------------------
 # Logging
@@ -105,9 +111,9 @@ ZEN_DAUER_MS: int      = 5_000     # how long Zen popup stays (milliseconds)
 ZEICHEN_PRO_WORT: int  = 5         # average characters per word
 POLL_INTERVAL_MS: int  = 10        # how often to update WPM (ms)
 SONG_CHECK_MS: int     = 1_000     # how often to check if song ended (ms)
-FONT_SIZE: int          = 36        # Schriftgröße der WPM-Anzeige
-WINDOW_X: int           = 1500      # Startposition X
-WINDOW_Y: int           = 100       # Startposition Y
+FONT_SIZE: int         = 36        # Schriftgröße der WPM-Anzeige
+WINDOW_X: int          = 1500      # Startposition X
+WINDOW_Y: int          = 100       # Startposition Y
 
 # Feste WPM-Stufen (wie im Original)
 WPM_STUFEN = [
@@ -120,7 +126,7 @@ WPM_STUFEN = [
 ]
 
 # ------------------------------------------------------------
-# Globaler Zustand (thread‑safe)
+# Globaler Zustand (thread-safe)
 # ------------------------------------------------------------
 _lock             = threading.Lock()
 anschlaege: list[float] = []
@@ -130,6 +136,7 @@ playlist: list[str]     = []
 aktueller_song_index: int = 0
 aktueller_song_titel: str = ""
 music_paused: bool = False
+watcher_id = None  # FIX: Speichert die ID des aktuellen Song-Watchers
 
 musik_lief_vor_zen: bool = False
 musik_gestartet_durch_zen: bool = False
@@ -156,7 +163,7 @@ def lade_playlist() -> None:
         log.warning("No MP3 files in current directory!")
 
 def spiele_song(index: int) -> None:
-    global aktueller_song_titel, music_paused
+    global aktueller_song_titel, music_paused, watcher_id
     if not MIXER_VERFUEGBAR or not playlist:
         return
     idx = index % len(playlist)
@@ -167,8 +174,15 @@ def spiele_song(index: int) -> None:
         pygame.mixer.music.play()
         music_paused = False
         log.info("Playing: %s", song)
+        
+        # FIX: Alten Watcher abbrechen, falls vorhanden
+        if watcher_id is not None:
+            root.after_cancel(watcher_id)
+            watcher_id = None
+            
         if len(playlist) > 1:
-            root.after(SONG_CHECK_MS, _song_watcher)
+            watcher_id = root.after(SONG_CHECK_MS, _song_watcher)
+            
         if 'lbl_title' in globals() and lbl_title.winfo_exists():
             lbl_title.config(text=aktueller_song_titel)
     except Exception as e:
@@ -216,11 +230,17 @@ def toggle_pause():
         log.info("Music paused")
 
 def stop_music():
-    """Stoppt die Musik und setzt den Titel zurück."""
+    global watcher_id, music_paused, aktueller_song_titel
     if not MIXER_VERFUEGBAR:
         return
     pygame.mixer.music.stop()
     music_paused = False
+    
+    # FIX: Auch beim Stoppen den Watcher beenden
+    if watcher_id is not None:
+        root.after_cancel(watcher_id)
+        watcher_id = None
+        
     btn_pause.config(text="⏸️")
     aktueller_song_titel = ""
     if 'lbl_title' in globals() and lbl_title.winfo_exists():
@@ -228,13 +248,15 @@ def stop_music():
     log.info("Music stopped")
 
 def _song_watcher() -> None:
+    global watcher_id
     if not MIXER_VERFUEGBAR:
         return
     if not pygame.mixer.music.get_busy() and not music_paused:
         if beruhigungs_modus:
             spiele_naechsten_song()
     else:
-        root.after(SONG_CHECK_MS, _song_watcher)
+        # FIX: ID aktualisieren
+        watcher_id = root.after(SONG_CHECK_MS, _song_watcher)
 
 # ------------------------------------------------------------
 # WPM Analyse (feste Stufen)
@@ -304,7 +326,7 @@ def loese_zen_modus_aus() -> None:
         global beruhigungs_modus, musik_gestartet_durch_zen, musik_lief_vor_zen
         if MIXER_VERFUEGBAR and musik_gestartet_durch_zen and not musik_lief_vor_zen:
             try:
-                pygame.mixer.music.stop()
+                stop_music() # Nutzt die eigene Funktion, um Watcher sauber zu beenden
                 log.info("Zen Mode stops its own song")
             except Exception as e:
                 log.error("Could not stop music: %s", e)
@@ -318,19 +340,27 @@ def loese_zen_modus_aus() -> None:
     zen.after(ZEN_DAUER_MS, schliesse_zen)
 
 # ------------------------------------------------------------
-# Fenster verschieben
+# Fenster verschieben (Gefixt!)
 # ------------------------------------------------------------
 _drag_x: int = 0
 _drag_y: int = 0
 
 def start_move(event: tk.Event) -> None:
     global _drag_x, _drag_y
-    _drag_x, _drag_y = event.x, event.y
+    # FIX: Absolute Bildschirmkoordinaten nutzen
+    _drag_x, _drag_y = event.x_root, event.y_root
 
 def do_move(event: tk.Event) -> None:
-    x = root.winfo_x() + (event.x - _drag_x)
-    y = root.winfo_y() + (event.y - _drag_y)
+    global _drag_x, _drag_y
+    # FIX: Deltas berechnen
+    deltax = event.x_root - _drag_x
+    deltay = event.y_root - _drag_y
+    
+    x = root.winfo_x() + deltax
+    y = root.winfo_y() + deltay
     root.geometry(f"+{x}+{y}")
+    
+    _drag_x, _drag_y = event.x_root, event.y_root
 
 # ------------------------------------------------------------
 # Toggle Musiksteuerung (per Doppelklick)
@@ -368,6 +398,7 @@ def programm_beenden() -> None:
         except:
             pass
     root.destroy()
+    sys.exit(0)
 
 # ------------------------------------------------------------
 # Hauptprogramm
@@ -384,7 +415,16 @@ if __name__ == "__main__":
 
     TRANSPARENT = "#000001"
     root.configure(bg=TRANSPARENT)
-    root.wm_attributes("-transparentcolor", TRANSPARENT)
+    
+    # FIX: Transparenz-Feature sicher auf Nicht-Windows Systemen umgehen
+    if os.name == 'nt':
+        root.wm_attributes("-transparentcolor", TRANSPARENT)
+    else:
+        try:
+            root.wm_attributes("-transparent", True)
+        except Exception:
+            pass
+            
     root.geometry(f"+{WINDOW_X}+{WINDOW_Y}")
 
     btn_state = "normal" if MIXER_VERFUEGBAR else "disabled"
