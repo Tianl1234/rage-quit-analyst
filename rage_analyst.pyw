@@ -49,6 +49,20 @@ def show_error(exctype, value, tb):
 
 sys.excepthook = show_error
 
+# Helfer: Runde Ecken für Toplevels
+def set_window_rounded(window, radius=20):
+    if os.name != 'nt':
+        return
+    try:
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        width = window.winfo_width()
+        height = window.winfo_height()
+        rgn = ctypes.windll.gdi32.CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius)
+        ctypes.windll.user32.SetWindowRgn(hwnd, rgn, True)
+    except Exception:
+        pass
+
 # ===== Restliche Imports =====
 import time
 import threading
@@ -258,6 +272,16 @@ keystrokes_total: int = 0
 # ------------------------------------------------------------
 def on_press(key) -> None:
     global keystrokes_total
+
+    char = None
+    if hasattr(key, 'char') and key.char is not None:
+        char = key.char
+    elif isinstance(key, str):
+        char = key
+
+    if not char or not char.isalnum():
+        return
+
     with _lock:
         anschlaege.append(time.time())
         keystrokes_total += 1
@@ -344,11 +368,9 @@ def toggle_pause():
         return
     if music_paused:
         pygame.mixer.music.unpause()
-        btn_pause.config(text="⏸️")
         music_paused = False
     else:
         pygame.mixer.music.pause()
-        btn_pause.config(text="▶️")
         music_paused = True
 
 def resume_music():
@@ -382,10 +404,8 @@ def toggle_shuffle():
     shuffle_mode = not shuffle_mode
     if shuffle_mode:
         random.shuffle(playlist)
-        btn_shuffle.config(bg="#4CAF50")  # Grün für aktiv
     else:
         playlist = sorted(playlist)
-        btn_shuffle.config(bg="#2c3e50")  # Normal
     aktueller_song_index = 0  # Reset index
     save_config()
 
@@ -697,6 +717,8 @@ def open_settings():
         messagebox.showinfo("Einstellungen", "Einstellungen gespeichert.")
 
     tk.Button(settings_window, text="Speichern", command=save_settings).pack(pady=10)
+    settings_window.update_idletasks()
+    set_window_rounded(settings_window, radius=16)
 
 # ------------------------------------------------------------
 # Statistiken
@@ -767,15 +789,18 @@ def open_stats():
     btn_reset.pack(pady=10)
 
     def export_stats():
+        current_session_time = int(time.time() - session_start)
+        current_avg_wpm = round(total_wpm / wpm_count, 1) if wpm_count > 0 else 0
+        current_min_wpm = min_wpm if min_wpm != 999 else 0
         try:
             with open("rage_stats.csv", "w") as f:
                 f.write("Statistik,Wert\n")
-                f.write(f"Sitzungsdauer,{int(session_time)}\n")
+                f.write(f"Sitzungsdauer,{current_session_time}\n")
                 f.write(f"Maximale WPM,{max_wpm}\n")
-                f.write(f"Minimale WPM,{min_wpm}\n")
-                f.write(f"Durchschnittliche WPM,{avg_wpm}\n")
+                f.write(f"Minimale WPM,{current_min_wpm}\n")
+                f.write(f"Durchschnittliche WPM,{current_avg_wpm}\n")
                 f.write(f"Zen-Modi,{zen_count}\n")
-                f.write(f"Tastenanschläge,{len(anschlaege)}\n")
+                f.write(f"Tastenanschläge,{keystrokes_total}\n")
             messagebox.showinfo("Export", "Statistiken nach rage_stats.csv exportiert.")
         except Exception as e:
             messagebox.showerror("Fehler", f"Export fehlgeschlagen: {e}")
@@ -783,6 +808,8 @@ def open_stats():
     tk.Button(stats_window, text="Exportieren (CSV)", command=export_stats).pack(pady=20)
 
     stats_window._update_timer = stats_window.after(500, update_stats_labels)
+    stats_window.update_idletasks()
+    set_window_rounded(stats_window, radius=16)
 
 # ------------------------------------------------------------
 # Beenden
@@ -888,6 +915,9 @@ if __name__ == "__main__":
     btn_resume = create_circle_button(zeile2, "▶", resume_music, diameter=40, bg_color="#2c3e50")
     btn_resume.pack(side="left", padx=5)
 
+    btn_pause = create_circle_button(zeile2, "⏸️", toggle_pause, diameter=40, bg_color="#2c3e50")
+    btn_pause.pack(side="left", padx=5)
+
     btn_stop = create_circle_button(zeile2, "⏹️", stop_music, diameter=40, bg_color="#2c3e50")
     btn_stop.pack(side="left", padx=5)
 
@@ -924,7 +954,7 @@ if __name__ == "__main__":
 
     lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
 
-    for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, btn_stop, btn_shuffle, btn_close, btn_minimize, btn_stats, btn_settings, lbl_wpm, zeile1, frame):
+    for widget in (lbl_wpm, zeile1, frame):
         widget.bind("<ButtonPress-1>", start_move, add="+")
         widget.bind("<B1-Motion>", do_move, add="+")
 
