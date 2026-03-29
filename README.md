@@ -1,39 +1,37 @@
-# 🚀 Rage Quit WPM Overlay
+# 🧘‍♂️ Rage Analyst (WPM Monitor & Zen Mode)
 
-A lightweight, always‑on‑top overlay that displays your current typing speed (WPM) in real time.  
-When you type too fast (rage threshold), it triggers a **Zen Mode** – a full‑screen popup that forces you to take a break and plays calming music.  
-Includes Spotify‑style music controls with **play/pause, stop, previous/next track, volume slider, and current song title** – all hidden by default and revealed with a double‑click.
+**Rage Analyst** is a lightweight, transparent desktop overlay for Windows that monitors your typing speed (WPM) in real-time. It doesn't just track your performance—it acts as your digital therapist. If you start typing too fast (a sign of "keyboard rage"), it triggers **Zen Mode** to force a break.
 
 ---
 
 ## ✨ Features
 
-- **Live WPM display** – colour‑coded emojis (🐢🐇🚀🔥⚡🤬) for different speed levels  
-- **Rolling time window** (default 5 seconds) for smooth WPM calculation  
-- **Rage detection** – when WPM exceeds a threshold (default 100), Zen Mode activates  
-- **Zen Mode popup** – blocks the screen for 5 seconds, plays music (if available)  
-- **Intelligent music handling** during Zen Mode:  
-  - If music was already playing → it keeps playing uninterrupted  
-  - If no music was playing → Zen Mode starts a song and stops it afterwards  
-- **Music controls** (hidden by default, appear on double‑click):  
-  - ⏮ Previous song  
-  - 🔍▶ Scan folder for MP3s and play the first one  
-  - ⏭ Next song  
-  - ⏸️/▶️ Pause / resume  
-  - ⏹️ Stop (clears the title)  
-  - 🔊 Volume slider  
-  - 🎵 Current song title display  
-- **Drag‑anywhere overlay** – click and drag the WPM label or any button  
-- **No console window** when saved as `.pyw` (automatic console hiding)  
-- **Auto‑install missing dependencies** (`pynput`, `pygame`) on first run  
-- Works with **Python 3.10–3.13** (fallback if `pygame.mixer` is unavailable – music disabled, overlay still works)
+* **Real-time WPM Tracking**: Smoothly calculates your words-per-minute using a rolling time window.
+* **Dynamic Emojis**: Visual feedback on your typing "vibe":
+    * 🐢 (20 WPM) -> 🚀 (60 WPM) -> ⚡ (100 WPM) -> 🤬 (RAGE).
+* **Zen Mode**: When you exceed the "Rage Threshold," the app locks the screen with a calming message and optionally plays music to lower your cortisol levels.
+* **Integrated Music Player**: Control your `.mp3` playlist directly from the overlay (supports Shuffle, Play/Pause, and Volume).
+* **Transparent Overlay**: Stays on top of all windows without being intrusive.
+* **Session Stats**: Tracks Max WPM, Average WPM, Total Keystrokes, and how many times you nearly lost your cool (Zen Count).
 
 ---
 
-## 📦 Installation & Dependencies
+## 🚀 Quick Start
 
-The script **automatically installs** the required packages when you run it for the first time.  
-If you prefer to install them manually, open a terminal and run:
+### Prerequisites
+* **Python 3.10+** (Fully compatible with Python 3.13).
+* **Windows** (Optimized for Win32 API console hiding and transparency).
 
+### Installation
+1.  Clone this repository or save the script.
+2.  Install dependencies:
+    ```bash
+    pip install pynput pygame
+    ```
+3.  Place some `.mp3` files in the same folder as the script for the music feature.
+4.  (Optional) Add an `alarm.wav` for high-speed alerts.
+
+### Usage
+Run the script:
 ```bash
-pip install pynput pygame
+python rage_analyst.py
