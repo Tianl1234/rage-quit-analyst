@@ -251,13 +251,16 @@ max_wpm: int = 0
 total_wpm: float = 0.0
 wpm_count: int = 0
 zen_count: int = 0
+keystrokes_total: int = 0
 
 # ------------------------------------------------------------
 # Keylogger
 # ------------------------------------------------------------
 def on_press(key) -> None:
+    global keystrokes_total
     with _lock:
         anschlaege.append(time.time())
+        keystrokes_total += 1
 
 def starte_keylogger() -> None:
     with keyboard.Listener(on_press=on_press) as listener:
@@ -348,6 +351,17 @@ def toggle_pause():
         btn_pause.config(text="▶️")
         music_paused = True
 
+def resume_music():
+    global music_paused, aktueller_song_index
+    if not MIXER_VERFUEGBAR:
+        return
+    if music_paused:
+        pygame.mixer.music.unpause()
+        music_paused = False
+    elif not pygame.mixer.music.get_busy() and playlist:
+        spiele_song(aktueller_song_index)
+
+
 def stop_music():
     global watcher_id, music_paused, aktueller_song_titel
     if not MIXER_VERFUEGBAR:
@@ -359,7 +373,6 @@ def stop_music():
         root.after_cancel(watcher_id)
         watcher_id = None
         
-    btn_pause.config(text="⏸️")
     aktueller_song_titel = ""
     if 'lbl_title' in globals() and lbl_title.winfo_exists():
         lbl_title.config(text="")
@@ -395,12 +408,13 @@ def toggle_session_pause():
         analysiere_tippgeschwindigkeit()
 
 def reset_stats():
-    global max_wpm, total_wpm, wpm_count, zen_count, min_wpm
+    global max_wpm, total_wpm, wpm_count, zen_count, min_wpm, keystrokes_total
     max_wpm = 0
     total_wpm = 0.0
     wpm_count = 0
     zen_count = 0
     min_wpm = 999
+    keystrokes_total = 0
     messagebox.showinfo("Reset", "Statistiken zurückgesetzt.")
 
 def open_playlist_editor():
@@ -415,6 +429,11 @@ def open_playlist_editor():
 
     def on_close():
         global playlist_window
+        if playlist_window is not None and playlist_window.winfo_exists():
+            try:
+                playlist_window.destroy()
+            except Exception:
+                pass
         playlist_window = None
 
     playlist_window.protocol("WM_DELETE_WINDOW", on_close)
@@ -423,7 +442,10 @@ def open_playlist_editor():
     for song in playlist:
         listbox.insert(tk.END, song)
     listbox.pack(fill=tk.BOTH, expand=True)
-    # Einfach: Keine Edit-Funktionen, nur Anzeige
+
+    # extra: Schließen-Button für Playlist-Editor
+    btn_close_playlist = tk.Button(playlist_window, text="Schließen", command=on_close)
+    btn_close_playlist.pack(pady=5)
 
 def auto_save_stats():
     if auto_save_interval > 0:
@@ -691,6 +713,11 @@ def open_stats():
 
     def on_close():
         global stats_window
+        if hasattr(stats_window, '_update_timer'):
+            try:
+                stats_window.after_cancel(stats_window._update_timer)
+            except Exception:
+                pass
         try:
             stats_window.destroy()
         except Exception:
@@ -699,15 +726,42 @@ def open_stats():
 
     stats_window.protocol("WM_DELETE_WINDOW", on_close)
 
-    session_time = time.time() - session_start
-    avg_wpm = round(total_wpm / wpm_count, 1) if wpm_count > 0 else 0
+    # Separator function for dynamic updates
+    stats_labels = {}
 
-    tk.Label(stats_window, text=f"Sitzungsdauer: {int(session_time // 60)}m {int(session_time % 60)}s", font=("Arial", 12)).pack(pady=10)
-    tk.Label(stats_window, text=f"Maximale WPM: {max_wpm}", font=("Arial", 12)).pack(pady=5)
-    tk.Label(stats_window, text=f"Minimale WPM: {min_wpm}", font=("Arial", 12)).pack(pady=5)
-    tk.Label(stats_window, text=f"Durchschnittliche WPM: {avg_wpm}", font=("Arial", 12)).pack(pady=5)
-    tk.Label(stats_window, text=f"Zen-Modi ausgelöst: {zen_count}", font=("Arial", 12)).pack(pady=5)
-    tk.Label(stats_window, text=f"Gesamte Tastenanschläge: {len(anschlaege)}", font=("Arial", 12)).pack(pady=5)
+    def update_stats_labels():
+        if not stats_window.winfo_exists():
+            return
+        current_session_time = int(time.time() - session_start)
+        current_avg_wpm = round(total_wpm / wpm_count, 1) if wpm_count > 0 else 0
+        current_min_wpm = min_wpm if min_wpm != 999 else 0
+
+        stats_labels['session_time'].config(text=f"Sitzungsdauer: {current_session_time // 60}m {current_session_time % 60}s")
+        stats_labels['max_wpm'].config(text=f"Maximale WPM: {max_wpm}")
+        stats_labels['min_wpm'].config(text=f"Minimale WPM: {current_min_wpm}")
+        stats_labels['avg_wpm'].config(text=f"Durchschnittliche WPM: {current_avg_wpm}")
+        stats_labels['zen_count'].config(text=f"Zen-Modi ausgelöst: {zen_count}")
+        stats_labels['keystrokes'].config(text=f"Gesamte Tastenanschläge (gesamt): {keystrokes_total}")
+
+        stats_window._update_timer = stats_window.after(500, update_stats_labels)
+
+    stats_labels['session_time'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['session_time'].pack(pady=10)
+
+    stats_labels['max_wpm'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['max_wpm'].pack(pady=5)
+
+    stats_labels['min_wpm'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['min_wpm'].pack(pady=5)
+
+    stats_labels['avg_wpm'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['avg_wpm'].pack(pady=5)
+
+    stats_labels['zen_count'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['zen_count'].pack(pady=5)
+
+    stats_labels['keystrokes'] = tk.Label(stats_window, text="", font=("Arial", 12))
+    stats_labels['keystrokes'].pack(pady=5)
 
     btn_reset = tk.Button(stats_window, text="Statistiken zurücksetzen", command=reset_stats)
     btn_reset.pack(pady=10)
@@ -727,6 +781,8 @@ def open_stats():
             messagebox.showerror("Fehler", f"Export fehlgeschlagen: {e}")
 
     tk.Button(stats_window, text="Exportieren (CSV)", command=export_stats).pack(pady=20)
+
+    stats_window._update_timer = stats_window.after(500, update_stats_labels)
 
 # ------------------------------------------------------------
 # Beenden
@@ -781,6 +837,21 @@ if __name__ == "__main__":
     frame = tk.Frame(root, bg=TRANSPARENT)
     frame.pack()
 
+    def create_circle_button(parent, text, command, diameter=30, bg_color="#2c3e50", fg_color="white"):
+        canvas = tk.Canvas(parent, width=diameter, height=diameter, bg=TRANSPARENT, highlightthickness=0, bd=0)
+        oval = canvas.create_oval(0, 0, diameter, diameter, fill=bg_color, outline=bg_color)
+        canvas.create_text(diameter/2, diameter/2, text=text, fill=fg_color, font=("Segoe UI", int(diameter/2)), anchor="center")
+        def on_click(event):
+            try:
+                command()
+            except Exception:
+                pass
+        canvas.bind("<Button-1>", on_click)
+        canvas.bind("<Enter>", lambda e: canvas.itemconfig(oval, fill="#34495e"))
+        canvas.bind("<Leave>", lambda e: canvas.itemconfig(oval, fill=bg_color))
+        canvas.configure(cursor="hand2")
+        return canvas
+
     # ---- Zeile 1: WPM-Anzeige + Schließen-Button ----
     zeile1 = tk.Frame(frame, bg=TRANSPARENT)
     zeile1.pack(side="top", fill="x")
@@ -790,59 +861,39 @@ if __name__ == "__main__":
     lbl_wpm.pack(side="left", padx=10)
     log.info("WPM label created")
 
-    btn_close = tk.Button(zeile1, text="✖", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
-                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
-                          cursor="hand2", command=programm_beenden)
-    btn_close.pack(side="right", anchor="n")
-    log.info("Close button created")
+    btn_close = create_circle_button(zeile1, "✖", programm_beenden, diameter=30, bg_color="#2c3e50", fg_color="white")
+    btn_close.pack(side="right", anchor="n", padx=4)
 
-    btn_minimize = tk.Button(zeile1, text="_", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
-                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
-                          cursor="hand2", command=lambda: root.iconify())
-    btn_minimize.pack(side="right", anchor="n", padx=(0,5))
+    btn_minimize = create_circle_button(zeile1, "_", lambda: root.iconify(), diameter=30, bg_color="#2c3e50", fg_color="white")
+    btn_minimize.pack(side="right", anchor="n", padx=4)
 
-    btn_stats = tk.Button(zeile1, text="📊", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
-                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
-                          cursor="hand2", command=open_stats)
-    btn_stats.pack(side="right", anchor="n", padx=(0,5))
+    btn_stats = create_circle_button(zeile1, "📊", open_stats, diameter=30, bg_color="#2c3e50", fg_color="white")
+    btn_stats.pack(side="right", anchor="n", padx=4)
 
-    btn_settings = tk.Button(zeile1, text="⚙️", font=("Arial", 8), fg="gray", bg=TRANSPARENT,
-                          bd=0, activebackground=TRANSPARENT, activeforeground="white",
-                          cursor="hand2", command=open_settings)
-    btn_settings.pack(side="right", anchor="n", padx=(0,5))
+    btn_settings = create_circle_button(zeile1, "⚙️", open_settings, diameter=30, bg_color="#2c3e50", fg_color="white")
+    btn_settings.pack(side="right", anchor="n", padx=4)
 
     # ---- Zeile 2: Musik-Buttons (versteckt) ----
     zeile2 = tk.Frame(frame, bg=TRANSPARENT)
 
-    btn_prev = tk.Button(zeile2, text="⏮", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=vorheriger_song)
+    btn_prev = create_circle_button(zeile2, "⏮", vorheriger_song, diameter=40, bg_color="#2c3e50")
     btn_prev.pack(side="left", padx=5)
 
-    btn_play_scan = tk.Button(zeile2, text="🔍 ▶", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                               bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                               cursor="hand2", state=btn_state, command=scan_und_spiele)
+    btn_play_scan = create_circle_button(zeile2, "🔍▶", scan_und_spiele, diameter=40, bg_color="#2c3e50")
     btn_play_scan.pack(side="left", padx=5)
 
-    btn_next = tk.Button(zeile2, text="⏭", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=spiele_naechsten_song)
+    btn_next = create_circle_button(zeile2, "⏭", spiele_naechsten_song, diameter=40, bg_color="#2c3e50")
     btn_next.pack(side="left", padx=5)
 
-    btn_pause = tk.Button(zeile2, text="⏸️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                          bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                          cursor="hand2", state=btn_state, command=toggle_pause)
-    btn_pause.pack(side="left", padx=5)
+    btn_resume = create_circle_button(zeile2, "▶", resume_music, diameter=40, bg_color="#2c3e50")
+    btn_resume.pack(side="left", padx=5)
 
-    btn_stop = tk.Button(zeile2, text="⏹️", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                         bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                         cursor="hand2", state=btn_state, command=stop_music)
+    btn_stop = create_circle_button(zeile2, "⏹️", stop_music, diameter=40, bg_color="#2c3e50")
     btn_stop.pack(side="left", padx=5)
 
-    btn_shuffle = tk.Button(zeile2, text="🔀", font=("Segoe UI", 14), fg="white", bg="#2c3e50",
-                            bd=0, padx=10, activebackground="#34495e", activeforeground="white",
-                            cursor="hand2", state=btn_state, command=toggle_shuffle)
+    btn_shuffle = create_circle_button(zeile2, "🔀", toggle_shuffle, diameter=40, bg_color="#2c3e50")
     btn_shuffle.pack(side="left", padx=5)
+
 
     if shuffle_mode:
         btn_shuffle.config(bg="#4CAF50")
@@ -874,8 +925,8 @@ if __name__ == "__main__":
     lbl_wpm.bind("<Double-Button-1>", toggle_music_controls)
 
     for widget in (btn_prev, btn_play_scan, btn_next, btn_pause, btn_stop, btn_shuffle, btn_close, btn_minimize, btn_stats, btn_settings, lbl_wpm, zeile1, frame):
-        widget.bind("<ButtonPress-1>", start_move)
-        widget.bind("<B1-Motion>", do_move)
+        widget.bind("<ButtonPress-1>", start_move, add="+")
+        widget.bind("<B1-Motion>", do_move, add="+")
 
     analysiere_tippgeschwindigkeit()
     log.info("Initial WPM analysis started")
